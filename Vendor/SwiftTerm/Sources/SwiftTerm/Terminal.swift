@@ -5384,13 +5384,16 @@ open class Terminal {
             // Clamp before conversion: large terminal coordinates exceed UInt8.
             sendResponse(cc.CSI, "M", [UInt8(buttonFlags+32), UInt8(clamping: 33 + x), UInt8(clamping: 33 + y)])
         case .sgr:
-            let bflags : Int = ((buttonFlags & 3) == 3) ? (buttonFlags & ~3) : buttonFlags
-            let m = ((buttonFlags & 3) == 3) ? "m" : "M"
+            // No-button motion also has low bits 3; the motion bit distinguishes
+            // it from a release. See upstream #520 and ORKHON-PATCHES.md.
+            let isRelease = (buttonFlags & 3) == 3 && (buttonFlags & 32) == 0
+            let bflags : Int = isRelease ? (buttonFlags & ~3) : buttonFlags
+            let m = isRelease ? "m" : "M"
             sendResponse(cc.CSI, "<\(bflags);\(x+1);\(y+1)\(m)")
         case .sgrPixel:
-            let bflags : Int = ((buttonFlags & 3) == 3) ? (buttonFlags & ~3) : buttonFlags
-            let m = ((buttonFlags & 3) == 3) ? "m" : "M"
-            print ("\(pixelX);\(pixelY)")
+            let isRelease = (buttonFlags & 3) == 3 && (buttonFlags & 32) == 0
+            let bflags : Int = isRelease ? (buttonFlags & ~3) : buttonFlags
+            let m = isRelease ? "m" : "M"
             sendResponse(cc.CSI, "<\(bflags);\(pixelX);\(pixelY)\(m)")
             
         case .urxvt:

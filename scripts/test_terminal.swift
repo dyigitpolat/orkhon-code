@@ -313,6 +313,91 @@ print("\nPTY_WHEEL_RESULT=" + result, flush=True)
         }
     }
 
+    private static func checkHoverInput(_ terminal: LocalProcessTerminalView, window: NSWindow) throws {
+        let original = terminal.terminalDelegate
+        let capture = InputCapture()
+        terminal.terminalDelegate = capture
+        defer {
+            terminal.feed(text: "\u{1b}[?1003l\u{1b}[?1006l\u{1b}[?1016l")
+            terminal.allowMouseReporting = true
+            terminal.terminalDelegate = original
+        }
+        let point = terminal.convert(NSPoint(x: 60, y: 60), to: nil)
+        let hover = try require(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [],
+            timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+            clickCount: 0, pressure: 0), "construct native hover event")
+        terminal.feed(text: "\u{1b}[?1003h\u{1b}[?1006h")
+        terminal.mouseMoved(with: hover)
+        let packet = String(decoding: capture.bytes, as: UTF8.self)
+        try check(packet.hasPrefix("\u{1b}[<35;") && packet.hasSuffix("M"),
+                  "hover is no-button motion, never a release (got \(packet.debugDescription))")
+
+        // Check the encoder's motion bit independently of the native event,
+        // including every combination of Shift, Option, and Control.
+        for protocolMode in [1006, 1016] {
+            terminal.feed(text: "\u{1b}[?\(protocolMode)h")
+            for modifiers in stride(from: 0, through: 28, by: 4) {
+                capture.bytes.removeAll()
+                terminal.getTerminal().sendMotion(buttonFlags: 3 | modifiers,
+                    x: 10, y: 7, pixelX: 110, pixelY: 80)
+                let coordinates = protocolMode == 1006 ? "11;8" : "110;80"
+                let expected = "\u{1b}[<\(35 | modifiers);\(coordinates)M"
+                try check(String(decoding: capture.bytes, as: UTF8.self) == expected,
+                          "no-button motion preserves modifiers \(modifiers) in protocol \(protocolMode)")
+            }
+        }
+        terminal.feed(text: "\u{1b}[?1016l\u{1b}[?1003h\u{1b}[?1006h")
+        capture.bytes.removeAll()
+        terminal.allowMouseReporting = false
+        terminal.mouseMoved(with: hover)
+        try check(capture.bytes.isEmpty, "disabling mouse reporting suppresses hover packets")
+        terminal.allowMouseReporting = true
+        for mode in [0, 9, 1000, 1002] {
+            terminal.feed(text: "\u{1b}[?1003l")
+            if mode != 0 { terminal.feed(text: "\u{1b}[?\(mode)h") }
+            capture.bytes.removeAll()
+            terminal.mouseMoved(with: hover)
+            try check(capture.bytes.isEmpty, "hover is not sent in tracking mode \(mode)")
+            if mode != 0 { terminal.feed(text: "\u{1b}[?\(mode)l") }
+        }
+        terminal.feed(text: "\u{1b}[?1003h")
+        terminal.feed(text: String(repeating: "hover history\r\n", count: 150))
+        terminal.scrollUp(lines: 30)
+        capture.bytes.removeAll()
+        terminal.mouseMoved(with: hover)
+        let row = Int(String(decoding: capture.bytes, as: UTF8.self).dropLast().split(separator: ";").last ?? "")
+        try check(row != nil && row! >= 1 && row! <= terminal.getTerminal().rows,
+                  "hover coordinates use visible rows after scrollback")
+        terminal.scroll(toPosition: 1)
+
+        for (kind, prefix, suffix) in [(NSEvent.EventType.leftMouseDown, "\u{1b}[<0;", "M"),
+                                       (.leftMouseUp, "\u{1b}[<0;", "m"),
+                                       (.leftMouseDragged, "\u{1b}[<32;", "M")] {
+            let event = try require(NSEvent.mouseEvent(with: kind, location: point, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                clickCount: 1, pressure: kind == .leftMouseUp ? 0 : 1), "construct button event")
+            capture.bytes.removeAll()
+            switch kind {
+            case .leftMouseDown: terminal.mouseDown(with: event)
+            case .leftMouseUp: terminal.mouseUp(with: event)
+            default:
+                terminal.feed(text: "\u{1b}[?1002h")
+                terminal.mouseDragged(with: event)
+            }
+            let value = String(decoding: capture.bytes, as: UTF8.self)
+            try check(value.hasPrefix(prefix) && value.hasSuffix(suffix),
+                      "native \(kind) retains its distinct press/release/drag encoding")
+        }
+        terminal.feed(text: "\u{1b}[?1003h")
+        capture.bytes.removeAll()
+        let start = ProcessInfo.processInfo.systemUptime
+        for _ in 0..<1000 { terminal.mouseMoved(with: hover) }
+        let packets = String(decoding: capture.bytes, as: UTF8.self).split(separator: "\u{1b}")
+        try check(packets.count == 1000 && packets.allSatisfy { $0.hasPrefix("[<35;") && $0.hasSuffix("M") },
+                  "1,000 hover events never become clicks or releases")
+        print(String(format: "Hover burst processing: %.2f ms", (ProcessInfo.processInfo.systemUptime-start)*1000))
+    }
+
     private static func run() throws {
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)
@@ -363,6 +448,7 @@ print("\nPTY_WHEEL_RESULT=" + result, flush=True)
         try check(first.process.running && firstPID > 1, "zsh owns a live PTY")
         try wait("isolated zsh startup completed") { text(in: first).contains("orkhon-test> ") }
         try checkKeyboardInput(first, window: window)
+        try checkHoverInput(first, window: window)
         try checkWheelInput(first)
         try checkWheelPTY(first, scratch: scratch)
         first.send(txt: "printf '\\nCHECK_TERM=%s\\nCHECK_TTY=%s\\nCHECK_APP=%s\\n' \"$TERM\" \"$(tty)\" \"$TERM_PROGRAM\"\r")

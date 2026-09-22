@@ -1086,7 +1086,7 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         let mouseHit = calculateMouseHit(with: event)
         let hit = mouseHit.grid
         if allowMouseReporting {
-            if terminal.mouseMode.sendMotionEvent() {
+            if terminal.mouseMode.sendButtonTracking() {
                 let flags = encodeMouseEvent(with: event)
                 let screenRow = max (0, min (displayBuffer.rows - 1, hit.row - displayBuffer.yDisp))
                 terminal.sendMotion(buttonFlags: flags, x: hit.col, y: screenRow, pixelX: mouseHit.pixels.col, pixelY: mouseHit.pixels.row)
@@ -1189,9 +1189,11 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
             }
         }
         
-        if terminal.mouseMode.sendMotionEvent() {
+        if allowMouseReporting && terminal.mouseMode.sendMotionEvent() {
             let flags = encodeMouseEvent(with: event, overwriteRelease: true)
-            terminal.sendMotion(buttonFlags: flags, x: hit.grid.col, y: hit.grid.row, pixelX: hit.pixels.col, pixelY: hit.pixels.row)
+            let displayBuffer = terminal.displayBuffer
+            let screenRow = max(0, min(displayBuffer.rows - 1, hit.grid.row - displayBuffer.yDisp))
+            terminal.sendMotion(buttonFlags: flags, x: hit.grid.col, y: screenRow, pixelX: hit.pixels.col, pixelY: hit.pixels.row)
         }
     }
     
