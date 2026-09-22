@@ -9,11 +9,12 @@ resources.mkdir(parents=True,exist_ok=True);macos.mkdir(exist_ok=True)
 shutil.copy2(root/'.build/release/Lumen',macos/'Orkhon Code')
 for name in ['languages.json','supported-extensions.json']:
  shutil.copy2(root/'Resources'/name,resources/name)
+shutil.copy2(root/'Resources/workspace_watch.py',resources/'workspace_watch.py')
 for p in (root/'Resources').glob('*.md'):shutil.copy2(p,resources/p.name)
 shutil.copytree(root/'Resources/MarkdownPreview',resources/'MarkdownPreview')
 # Broad syntax detection never claims ownership of file types. System text types
 # carry an icon but rank None so registration alone cannot become a default.
-info={'CFBundleName':'Orkhon Code','CFBundleDisplayName':'Orkhon Code','CFBundleExecutable':'Orkhon Code','CFBundleIdentifier':'app.orkhon.editor.review' if preview else 'app.orkhon.editor','CFBundleVersion':'10','CFBundleShortVersionString':'1.5.2','CFBundlePackageType':'APPL','CFBundleIconFile':'AppIcon','NSHighResolutionCapable':True,'NSSupportsAutomaticGraphicsSwitching':True,'LSMinimumSystemVersion':'13.0','NSPrincipalClass':'NSApplication','NSHumanReadableCopyright':'Orkhon Code · Open-source component licenses in Resources.'}
+info={'CFBundleName':'Orkhon Code','CFBundleDisplayName':'Orkhon Code','CFBundleExecutable':'Orkhon Code','CFBundleIdentifier':'app.orkhon.editor.review' if preview else 'app.orkhon.editor','CFBundleVersion':'11','CFBundleShortVersionString':'1.6.0','CFBundlePackageType':'APPL','CFBundleIconFile':'AppIcon','NSHighResolutionCapable':True,'NSSupportsAutomaticGraphicsSwitching':True,'LSMinimumSystemVersion':'13.0','NSPrincipalClass':'NSApplication','NSHumanReadableCopyright':'Orkhon Code · Open-source component licenses in Resources.'}
 if not preview:
  helper=stage/'document-types'
  subprocess.run(['swiftc','-O','-module-cache-path',str(root/'work/module-cache'),str(root/'Sources/Lumen/AssociationPolicy.swift'),str(root/'scripts/document_types.swift'),'-o',str(helper)],check=True)

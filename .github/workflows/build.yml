@@ -21,3 +21,12 @@ jobs:
         with:
           name: Orkhon-Code-macOS
           path: outputs/Orkhon Code Installer.pkg
+
+  linux-events:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify native Linux events and burst handling
+        run: |
+          python3 scripts/test_workspace_watch.py
+          python3 scripts/stress_workspace_watch.py

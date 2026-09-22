@@ -4,10 +4,13 @@ import LumenCore
 
 extension EditorWindowController {
     func runRevisionTests() async {
+        if ProcessInfo.processInfo.environment["ORKHON_TEST_REMOTE_ONLY"]=="1" {
+            finishRevisionTests(await runRemoteEventTests());return
+        }
         var results:[String:Bool]=[:]
         func check(_ label:String,_ value:Bool) {results[label]=value;print("\(value ? "PASS":"FAIL"): \(label)")}
         func pause(_ seconds:Double=0.15) async {try? await Task.sleep(nanoseconds:UInt64(seconds*1e9))}
-        func wait(_ predicate:()->Bool) async {for _ in 0..<100 {if predicate(){return};await pause(0.05)}}
+        func wait(_ predicate:()->Bool) async {for _ in 0..<400 {if predicate(){return};await pause(0.05)}}
         let fixture=URL(fileURLWithPath:ProcessInfo.processInfo.environment["ORKHON_TEST_DATA"]!).appendingPathComponent("fixtures")
         do {
             try FileManager.default.createDirectory(at:fixture.appendingPathComponent("a/deep"),withIntermediateDirectories:true)
@@ -144,20 +147,21 @@ extension EditorWindowController {
             let remoteFile=fixture.appendingPathComponent("remote.md")
             try "one\ntwo\nthree\n".write(to:remoteFile,atomically:true,encoding:.utf8)
             other.openRemoteFile(remoteFile.path);await wait{other.current?.loading==false};let remoteDoc=other.current!
-            check("Remote document starts automatic monitoring",other.remotePollTimer != nil)
+            await wait{other.remoteMonitor.eventDriven}
+            check("Remote document starts automatic event monitoring",other.remoteMonitor.eventDriven && other.remotePollTimer==nil)
             try "disk\ntwo\nthree\n".write(to:remoteFile,atomically:true,encoding:.utf8)
             await wait{remoteDoc.editor.text.hasPrefix("disk")}
-            check("Remote polling updates clean buffer automatically",remoteDoc.editor.text.hasPrefix("disk") && !remoteDoc.isModified)
+            check("Remote events update clean buffer automatically",remoteDoc.editor.text.hasPrefix("disk") && !remoteDoc.isModified)
             remoteDoc.editor.send(2160,w:0,l:-1);remoteDoc.editor.insertRecoveredText("my edit\ntwo\nthree\n")
             try "their edit\ntwo\nthree\n".write(to:remoteFile,atomically:true,encoding:.utf8)
             await wait{remoteDoc.externalChange != nil}
-            check("Remote polling opens full conflict review",remoteDoc.editor.text.hasPrefix("my edit") && remoteDoc.externalChange?.merge?.conflicts.count==1 && !remoteDoc.editor.isHidden && other.activePane.externalControls != nil)
+            check("Remote events open full conflict review",remoteDoc.editor.text.hasPrefix("my edit") && remoteDoc.externalChange?.merge?.conflicts.count==1 && !remoteDoc.editor.isHidden && other.activePane.externalControls != nil)
             if let change=remoteDoc.externalChange {other.chooseExternalHunk(remoteDoc,index:0,value:0,changeID:change.id)}
             check("Remote resolution adopts new disk baseline",remoteDoc.format?.text.hasPrefix("their edit")==true && remoteDoc.isModified)
             check("Remote resolved save succeeds",other.saveDocument(remoteDoc,asNew:false))
             check("Remote saved bytes match chosen version",try String(contentsOf:remoteFile,encoding:.utf8)=="my edit\ntwo\nthree\n")
             remoteDoc.editor.send(2160,w:0,l:-1);remoteDoc.editor.insertRecoveredText("new local\ntwo\nthree\n")
-            other.remotePollTimer?.invalidate();other.remotePollTimer=nil;await wait{!other.remotePollInFlight}
+            other.remoteMonitor.stop();other.remoteWorkspaceRefresh.cancel();other.remotePollTimer?.invalidate();other.remotePollTimer=nil;await wait{!other.remotePollInFlight}
             try "new server\ntwo\nthree\n".write(to:remoteFile,atomically:true,encoding:.utf8)
             check("Remote save rejects concurrent external write",!other.saveDocument(remoteDoc,asNew:false))
             await wait{remoteDoc.externalChange != nil}
@@ -170,7 +174,7 @@ extension EditorWindowController {
             try remoteDoc.format!.originalData.write(to:remoteFile);other.checkRemoteChanges(force:true)
             await wait{remoteDoc.externalChange==nil}
             check("Server reverting to baseline clears obsolete review",remoteDoc.externalChange==nil && remoteDoc.editor.text.hasPrefix("new local"))
-            other.remotePollTimer?.invalidate();other.remotePollTimer=nil;other.remote=nil;local.disconnect()
+            other.remoteMonitor.stop();other.remoteWorkspaceRefresh.cancel();other.remotePollTimer?.invalidate();other.remotePollTimer=nil;other.remote=nil;local.disconnect()
             if let path=ProcessInfo.processInfo.environment["ORKHON_MARKDOWN_FIXTURE"] {
                 let sample=fixture.appendingPathComponent("a/deep/ARCHITECTURE.md")
                 try FileManager.default.copyItem(at:URL(fileURLWithPath:path),to:sample)
@@ -207,8 +211,12 @@ extension EditorWindowController {
                 check("Unsaved HTML retains relative assets and updates live",(live as? String)?.contains("[42,\"rgb(12, 34, 56)\",\"Live change\"]")==true)
             } else {check("Native HTML viewer exists",false)}
         } catch {print(error);check("Revision fixtures completed",false)}
+        results.merge(await runWorkspaceMonitorTests()) {_,new in new}
         results.merge(await runMarkdownPreviewTests()) {_,new in new}
         results.merge(await runAssociationSetupTests()) {_,new in new}
+        finishRevisionTests(results)
+    }
+    private func finishRevisionTests(_ results:[String:Bool]) {
         let failures=results.filter{!$0.value}.map(\.key).sorted()
         if let path=ProcessInfo.processInfo.environment["LUMEN_TEST_RESULTS"],let data=try? JSONSerialization.data(withJSONObject:["checks":results,"failures":failures],options:[.prettyPrinted,.sortedKeys]) {try? data.write(to:URL(fileURLWithPath:path))}
         for controller in coordinator?.windows ?? [self] {for d in controller.documents {d.baselineChanged=false;d.editor.markSaved()}}

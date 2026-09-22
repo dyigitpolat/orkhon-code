@@ -11,6 +11,7 @@ final class DocumentTab {
     var language: Language?
     var pinned=false
     var isWelcome=false
+    var previewAssetRevision:UInt64=0
     var previewMode=PreviewMode.source
     var previewingMarkdown:Bool {get{previewMode != .source} set{previewMode=newValue ? .preview:.source}}
     var remotePath:String?
@@ -63,7 +64,11 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
     let findResult=NSTextField(labelWithString:"")
     var showFind=false, showReplace=false, wrap=UserDefaults.standard.bool(forKey:"wordWrap"), whitespace=false
     var fontSize:CGFloat { get { CGFloat(UserDefaults.standard.double(forKey:"fontSize")).clamped(to:10...28) } set { UserDefaults.standard.set(Double(newValue),forKey:"fontSize") } }
-    let fileMonitor=FileChangeMonitor()
+    let fileMonitor=FileChangeMonitor(),remoteMonitor=RemoteChangeMonitor()
+    let localWorkspaceRefresh=PreviewRefresh(idle:1,maxDelay:3),remoteWorkspaceRefresh=PreviewRefresh(idle:1,maxDelay:3)
+    var localTreeDirty=false,remoteTreeDirty=false
+    var remoteCheckPending=false
+    var remoteCheckCompletions:[()->Void]=[]
     var externalCheck:DispatchWorkItem?
     var remotePollTimer:Timer?
     var remotePollInFlight=false,lastRemotePoll:TimeInterval=0
@@ -393,7 +398,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
         return true
     }
     func finishClosing() {
-        sshWindow?.cancelPendingConnection();sshWindow=nil;externalCheck?.cancel();fileMonitor.update([]);remotePollTimer?.invalidate();remotePollTimer=nil
+        sshWindow?.cancelPendingConnection();sshWindow=nil;externalCheck?.cancel();localWorkspaceRefresh.cancel();remoteWorkspaceRefresh.cancel();fileMonitor.stop();remoteMonitor.stop();remotePollTimer?.invalidate();remotePollTimer=nil
         documents.forEach{clearRecovery($0)};terminal?.terminateAll()
         coordinator?.releaseConnection(for:self);recoveryQueue.sync {}
     }
@@ -402,7 +407,13 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
         finishClosing();coordinator?.removeWindow(self);return true
     }
     func applicationDidBecomeActive(_ notification:Notification) {guard launched else{return};tree?.refresh();checkExternalChanges()}
-    @objc func toggleSidebar(_ sender:Any?) {if treeItem.isCollapsed{ensureTree()};treeItem.isCollapsed.toggle()}
+    @objc func toggleSidebar(_ sender:Any?) {
+        if treeItem.isCollapsed {ensureTree()};treeItem.isCollapsed.toggle()
+        if !treeItem.isCollapsed {
+            if remote != nil,remoteTreeDirty {remoteTree?.refreshPreservingState();remoteTreeDirty=false}
+            else if remote==nil,localTreeDirty {tree?.refresh();localTreeDirty=false}
+        }
+    }
     @objc func toggleTerminal(_ sender:Any?) {
         if terminal == nil {
             let t=TerminalPanel(frame:terminalHost.bounds);t.autoresizingMask=[.width,.height];t.workingDirectory=workspaceURL ?? current?.url?.deletingLastPathComponent();t.remoteWorkspace=remote;terminalHost.addSubview(t);terminal=t;t.applyTheme(background:theme.background,foreground:theme.foreground,accent:theme.accentColor)

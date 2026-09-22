@@ -54,8 +54,10 @@ final class MarkdownView:NSView,WKNavigationDelegate {
     private var native:NativeMarkdownView?
     private let errorLabel=NSTextField(wrappingLabelWithString:"")
     private var ready=false,rendering=false
-    private var pending:(String,URL?,String)?
+    private var pending:(String,URL?,String,UInt64,String?)?
+    private let remoteResources=RemotePreviewResources()
     private var theme=Theme.all[0]
+    var onOpenRemote:((String)->Void)?
     var onOpen:((URL)->Void)? {didSet{native?.onOpen=onOpen}}
     init(nativeOnly:Bool=false) {
         self.nativeOnly=nativeOnly;super.init(frame:.zero)
@@ -64,6 +66,7 @@ final class MarkdownView:NSView,WKNavigationDelegate {
         else if let root=Bundle.main.resourceURL?.appendingPathComponent("MarkdownPreview"),FileManager.default.fileExists(atPath:root.appendingPathComponent("index.html").path) {
             let config=WKWebViewConfiguration();config.websiteDataStore = .nonPersistent();config.preferences.javaScriptCanOpenWindowsAutomatically=false
             let resources=MarkdownResources(root:root);config.setURLSchemeHandler(resources,forURLScheme:"orkhon-preview");config.setURLSchemeHandler(resources,forURLScheme:"orkhon-document")
+            remoteResources.imagesOnly=true;config.setURLSchemeHandler(remoteResources,forURLScheme:"orkhon-remote")
             let view=WKWebView(frame:.zero,configuration:config);web=view;view.navigationDelegate=self;addSubview(view)
             view.setValue(false,forKey:"drawsBackground");view.setAccessibilityLabel("Markdown preview")
             view.load(URLRequest(url:URL(string:"orkhon-preview://bundle/index.html")!))
@@ -73,20 +76,22 @@ final class MarkdownView:NSView,WKNavigationDelegate {
     required init?(coder:NSCoder) {fatalError("Use init(nativeOnly:)")}
     override func layout() {super.layout();web?.frame=bounds;native?.frame=bounds;errorLabel.frame=NSRect(x:24,y:max(0,bounds.height-90),width:max(0,bounds.width-48),height:66)}
     func applyTheme(_ value:Theme) {theme=value;layer?.backgroundColor=value.background.cgColor;native?.applyTheme(value)}
-    func render(_ text:String,url:URL?,documentID:String) {
+    func render(_ text:String,url:URL?,documentID:String,assetRevision:UInt64=0,remote:RemoteWorkspace?=nil,remotePath:String?=nil) {
         guard text.utf8.count<=5*1024*1024 else {pending=nil;web?.isHidden=true;showError("This document exceeds the 5 MB preview limit. Choose Source to view the complete file.");return}
         errorLabel.isHidden=true;web?.isHidden=false
         if let native {native.render(text);return}
-        pending=(text,url,documentID);renderLatest()
+        remoteResources.connection=remote;remoteResources.origin=remote?.cacheURL.lastPathComponent.lowercased()
+        pending=(text,url,documentID,assetRevision,remotePath);renderLatest()
     }
     private func renderLatest() {
-        guard ready,!rendering,let web,let (text,url,documentID)=pending else{return}
+        guard ready,!rendering,let web,let (text,url,documentID,assetRevision,remotePath)=pending else{return}
         pending=nil;rendering=true
         func hex(_ value:UInt32)->String {String(format:"#%06x",value)}
         let colors:[String:Any]=["dark":theme.dark,"background":hex(theme.bg),"foreground":hex(theme.fg),"muted":hex(theme.muted),"accent":hex(theme.accent),"panel":hex(theme.panel),"line":hex(theme.selection)]
         var base=""
         if let url,url.isFileURL {var components=URLComponents();components.scheme="orkhon-document";components.host="local";components.path=url.deletingLastPathComponent().path+"/";base=components.string ?? ""}
-        web.callAsyncJavaScript("return await window.orkhon.render(source, theme, base, documentID)",arguments:["source":text,"theme":colors,"base":base,"documentID":documentID],in:nil,in:.page) { [weak self] result in
+        if let remotePath {var components=URLComponents();components.scheme="orkhon-remote";components.host=remoteResources.connection?.cacheURL.lastPathComponent.lowercased() ?? "assets";components.path=(remotePath as NSString).deletingLastPathComponent+"/";base=components.string ?? ""}
+        web.callAsyncJavaScript("return await window.orkhon.render(source, theme, base, documentID, assetRevision)",arguments:["source":text,"theme":colors,"base":base,"documentID":documentID,"assetRevision":String(assetRevision)],in:nil,in:.page) { [weak self] result in
             guard let self else{return};self.rendering=false
             if case .failure(let error)=result {self.showError("Preview could not be rendered: "+error.localizedDescription)}
             self.renderLatest()
@@ -101,6 +106,7 @@ final class MarkdownView:NSView,WKNavigationDelegate {
         if url.scheme == "orkhon-preview",url.host == "bundle",url.path == "/index.html" {decisionHandler(.allow);return}
         if action.navigationType == .linkActivated {
             if url.scheme == "orkhon-document",url.host == "local" {onOpen?(URL(fileURLWithPath:url.path))}
+            else if url.scheme == "orkhon-remote" {onOpenRemote?(url.path)}
             else if ["http","https","mailto"].contains(url.scheme?.lowercased() ?? "") {NSWorkspace.shared.open(url)}
         }
         decisionHandler(.cancel)

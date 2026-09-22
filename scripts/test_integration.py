@@ -13,6 +13,8 @@ import threading
 root = Path(__file__).resolve().parent.parent
 app = Path(sys.argv[1]) if len(sys.argv) > 1 else Path((root / 'work/staged-app-path.txt').read_text().strip())
 binary = app / 'Contents/MacOS/Orkhon Code'
+reports = Path(os.environ.get('ORKHON_TEST_REPORT_DIR', str(root / 'work')))
+reports.mkdir(parents=True, exist_ok=True)
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -26,13 +28,13 @@ with tempfile.TemporaryDirectory(prefix='orkhon-integration-') as scratch:
         thread.start()
         try:
             for flag, name in [('--self-test', 'editor-tests-final'), ('--revision-tests', 'revision-tests')]:
-                report = root / f'work/{name}.json'
+                report = reports / f'{name}.json'
                 report.unlink(missing_ok=True)
                 env = dict(os.environ, ORKHON_SKIP_SETUP='1', ORKHON_TEST_DATA=str(directory / name),
                            LUMEN_TEST_RESULTS=str(report), ORKHON_TEST_HTTP_ASSET=f'http://127.0.0.1:{server.server_port}/script.js')
                 process = subprocess.Popen([str(binary), flag], env=env)
                 try:
-                    code = process.wait(timeout=120)
+                    code = process.wait(timeout=300)
                 except subprocess.TimeoutExpired:
                     raise RuntimeError(f'Integration app {process.pid} did not quit; left running for inspection.')
                 result = json.loads(report.read_text())

@@ -22,7 +22,7 @@ extension EditorWindowController {
             guard let self else{connection.disconnect();return}
             self.remote=connection;self.tree?.isHidden=true;self.ensureRemoteTree();self.remoteTree?.setRoot(connection.directory);self.treeItem.isCollapsed=false
             if self.terminalItem.isCollapsed {self.toggleTerminal(nil)}
-            self.terminal?.startRemoteSession(connection);self.sshWindow=nil;self.bringToFront()
+            self.terminal?.startRemoteSession(connection);self.sshWindow=nil;self.updateFileMonitoring();self.bringToFront()
         }
         sshWindow?.present(on:window)
     }

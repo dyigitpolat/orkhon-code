@@ -47,7 +47,7 @@ function showError(element, source, message) {
   const label = document.createElement('summary'); label.textContent = message;
   const code = document.createElement('pre'); code.textContent = source; details.append(label, code); element.replaceChildren(details);
 }
-async function render(source, theme, base, documentID) {
+async function render(source, theme, base, documentID, assetRevision = "0") {
   const version = ++revision;
   document.documentElement.style.colorScheme = theme.dark ? 'dark' : 'light';
   for (const key of ['background','foreground','muted','accent','panel','line']) document.documentElement.style.setProperty(`--${key}`, theme[key]);
@@ -59,7 +59,17 @@ async function render(source, theme, base, documentID) {
   for (const element of fragment.querySelectorAll('[src],a[href]')) {
     const attr = element.hasAttribute('src') ? 'src' : 'href';
     element.setAttribute(attr, resourceURL(element.getAttribute(attr), base));
-    if (element.tagName === 'IMG') {element.loading = 'lazy'; element.decoding = 'async';}
+    if (element.tagName === 'IMG') {
+      // A filesystem batch invalidates document assets even if Markdown is unchanged.
+      // Preserve anchors, existing query parameters, and immutable renderer resources.
+      try {
+        const url = new URL(element.getAttribute('src'));
+        if (['orkhon-document:', 'orkhon-remote:'].includes(url.protocol)) {
+          url.searchParams.set('orkhon-revision', assetRevision); element.src = url.href;
+        }
+      } catch {}
+      element.loading = 'lazy'; element.decoding = 'async';
+    }
   }
   const article = document.querySelector('article'), position = documentID === currentDocument ? window.scrollY : 0;
   currentDocument = documentID; article.replaceChildren(fragment); window.scrollTo(0,position);

@@ -3,23 +3,6 @@ import EditorBridge
 import LumenCore
 import Darwin
 
-final class FileChangeMonitor {
-    private var sources:[String:DispatchSourceFileSystemObject]=[:]
-    private let queue=DispatchQueue(label:"app.orkhon.file-watch",qos:.utility)
-    var onChange:(()->Void)?
-    func update(_ urls:[URL],rearm:Bool=false) {
-        let paths=Set(urls.flatMap{[$0.path,$0.deletingLastPathComponent().path]})
-        for path in Array(sources.keys) where rearm || !paths.contains(path) {sources.removeValue(forKey:path)?.cancel()}
-        for path in paths where sources[path]==nil {
-            let fd=open(path,O_EVTONLY|O_CLOEXEC);guard fd>=0 else{continue}
-            let source=DispatchSource.makeFileSystemObjectSource(fileDescriptor:fd,eventMask:[.write,.rename,.delete,.attrib,.extend],queue:queue)
-            source.setEventHandler { [weak self] in DispatchQueue.main.async {self?.onChange?()} }
-            source.setCancelHandler {close(fd)};sources[path]=source;source.resume()
-        }
-    }
-    deinit {sources.values.forEach{$0.cancel()}}
-}
-
 struct ExternalChange {
     let id=UUID()
     let file:TextFile
@@ -39,28 +22,66 @@ struct ExternalAnchor {let index:Int,line:Int,row:Int}
 
 extension EditorWindowController {
     func updateFileMonitoring(rearm:Bool=false) {
-        fileMonitor.onChange = { [weak self] in self?.scheduleExternalCheck() }
-        fileMonitor.update(documents.filter{!$0.isWelcome && $0.remotePath==nil}.compactMap{$0.url},rearm:rearm)
-        let needsPolling=remote != nil && documents.contains{$0.remotePath != nil}
-        if needsPolling && remotePollTimer==nil {
-            let timer=Timer(timeInterval:2,repeats:true) { [weak self] _ in Task { @MainActor in self?.checkRemoteChanges() } }
-            RunLoop.main.add(timer,forMode:.common);remotePollTimer=timer
-        } else if !needsPolling {remotePollTimer?.invalidate();remotePollTimer=nil}
+        fileMonitor.onChange = { [weak self] in self?.scheduleWorkspaceRefresh(remote:false) }
+        fileMonitor.update(documents.filter{!$0.isWelcome && $0.remotePath==nil}.compactMap{$0.url},workspace:remote == nil ? workspaceURL:nil,rearm:rearm)
+        remoteMonitor.onChange = { [weak self] in self?.scheduleWorkspaceRefresh(remote:true) }
+        remoteMonitor.onAvailability = { [weak self] available in self?.setRemoteWatchAvailability(available) }
+        let paths=remote.map{[$0.directory]+documents.compactMap{$0.remotePath.map{($0 as NSString).deletingLastPathComponent}}} ?? []
+        remoteMonitor.update(connection:remote,paths:paths)
+        if remote==nil {remotePollTimer?.invalidate();remotePollTimer=nil}
+    }
+    func setRemoteWatchAvailability(_ available:Bool) {
+        remotePollTimer?.invalidate();remotePollTimer=nil
+        if available {remoteTree?.monitoringNote=nil;remoteTree?.showMessage(remote?.directory ?? "");return}
+        guard remote != nil else{return}
+        remoteTree?.monitoringNote="Live events unavailable · refreshing every 10 seconds"
+        remoteTree?.showMessage(remoteTree?.monitoringNote ?? "")
+        let timer=Timer(timeInterval:10,repeats:true) { [weak self] _ in
+            Task { @MainActor in self?.scheduleWorkspaceRefresh(remote:true) }
+        }
+        RunLoop.main.add(timer,forMode:.common);remotePollTimer=timer
+        scheduleWorkspaceRefresh(remote:true)
+    }
+    func scheduleWorkspaceRefresh(remote:Bool) {
+        let scheduler=remote ? remoteWorkspaceRefresh:localWorkspaceRefresh
+        scheduler.schedule { [weak self] in
+            guard let self else{return}
+            if remote {
+                self.remoteTreeDirty=self.treeItem.isCollapsed
+                if !self.remoteTreeDirty {self.remoteTree?.refreshPreservingState()}
+            } else {
+                self.localTreeDirty=self.treeItem.isCollapsed
+                if !self.localTreeDirty {self.tree?.refresh()}
+            }
+            // Hidden tabs get a new resource revision without creating a renderer.
+            for d in self.documents where !d.isWelcome && (d.remotePath != nil)==remote {d.previewAssetRevision &+= 1}
+            self.checkExternalChanges(remoteOnly:remote) { [weak self] in
+                guard let self else{return}
+                self.updateFileMonitoring(rearm:true)
+                for pane in [self.firstPane,self.secondPane] where !pane.isHidden {
+                    guard let d=pane.document,(d.remotePath != nil)==remote else{continue}
+                    pane.refreshFilesystemPreview()
+                }
+            }
+        }
     }
     func scheduleExternalCheck() {
         externalCheck?.cancel();let work=DispatchWorkItem { [weak self] in self?.checkExternalChanges();self?.updateFileMonitoring(rearm:true) }
         externalCheck=work;DispatchQueue.main.asyncAfter(deadline:.now()+0.2,execute:work)
     }
-    func checkExternalChanges() {
-        for d in documents where d.url != nil && d.remotePath==nil && !d.isWelcome && !d.loading && !d.checkingExternal {
+    func checkExternalChanges(remoteOnly:Bool?=nil,completion:(()->Void)?=nil) {
+        let group=DispatchGroup()
+        for d in documents where remoteOnly != true && d.url != nil && d.remotePath==nil && !d.isWelcome && !d.loading && !d.checkingExternal {
             guard let url=d.url,let old=d.format else{continue};d.checkingExternal=true
             let modified=d.isModified,local=d.editor.text
+            group.enter()
             ioQueue.async { [weak self,weak d] in
                 let read=Result {try DocumentStorage.read(url,fallbackEncoding:old.encoding)}
                 let file=try? read.get()
                 let changed=file.map{$0.originalData != old.originalData} ?? false
                 let merge=changed && modified ? file.map{file in Result{try ExternalMerge.compare(base:old.text,mine:local,disk:file.text)}}:nil
                 DispatchQueue.main.async {
+                    defer{group.leave()}
                     guard let self,let d else{return};d.checkingExternal=false
                     guard self.documents.contains(where:{$0===d}),d.format?.originalData==old.originalData else{return}
                     guard d.editor.text==local else {self.scheduleExternalCheck();return}
@@ -70,18 +91,19 @@ extension EditorWindowController {
                 }
             }
         }
-        checkRemoteChanges(force:documents.contains{$0.externalReviewRequested && $0.remotePath != nil})
+        if remoteOnly != false {
+            group.enter();checkRemoteChanges(force:true) {group.leave()}
+        }
+        if let completion {group.notify(queue:.main,execute:completion)}
     }
-    /// One batched checksum request, no overlapping polls. Data crosses SSH only
-    /// when a file actually changes; large workspaces use a slower ten-second poll.
-    func checkRemoteChanges(force:Bool=false) {
-        guard let connection=remote,!remotePollInFlight else{return}
+    /// Check only after an event, activation or save conflict; no idle checksum loop.
+    func checkRemoteChanges(force:Bool=false,completion:(()->Void)?=nil) {
+        guard let connection=remote else{completion?();finishRemoteChecks();return}
+        if remotePollInFlight {remoteCheckPending=true;if let completion {remoteCheckCompletions.append(completion)};return}
         let docs=documents.filter{$0.remotePath != nil && !$0.loading && $0.format != nil}
-        guard !docs.isEmpty else{return}
-        let now=ProcessInfo.processInfo.systemUptime
-        let interval:Double=docs.reduce(0){$0+($1.format?.originalData.count ?? 0)}>2*1024*1024 ? 10:2
-        guard force || now-lastRemotePoll>=interval else{return}
-        lastRemotePoll=now;remotePollInFlight=true
+        guard !docs.isEmpty else{completion?();finishRemoteChecks();return}
+        if let completion {remoteCheckCompletions.append(completion)}
+        lastRemotePoll=ProcessInfo.processInfo.systemUptime;remotePollInFlight=true
         let snapshots=docs.map{($0,$0.remotePath!,$0.format!)}
         let baselines=snapshots.map{($0.1,$0.2.originalData)}
         Task { [weak self] in
@@ -89,7 +111,11 @@ extension EditorWindowController {
                 let hashes=try connection.checksums(baselines.map{$0.0})
                 return Dictionary(baselines.map{($0.0,(hashes[$0.0],RemoteWorkspace.checksum($0.1)))},uniquingKeysWith:{$1})
             }}.value
-            guard let self else{return};defer{self.remotePollInFlight=false}
+            guard let self else{return};defer {
+                self.remotePollInFlight=false
+                if self.remoteCheckPending {self.remoteCheckPending=false;self.checkRemoteChanges(force:true)}
+                else {self.finishRemoteChecks()}
+            }
             guard self.remote === connection else{return}
             switch result {
             case .failure(let error):self.remoteTree?.showMessage("Refresh unavailable · "+error.localizedDescription)
@@ -108,7 +134,7 @@ extension EditorWindowController {
                     let merge=modified ? await Task.detached {file.map{file in Result{try ExternalMerge.compare(base:old.text,mine:local,disk:file.text)}}}.value:nil
                     d.checkingExternal=false
                     guard self.remote === connection,self.documents.contains(where:{$0===d}),d.format?.originalData==old.originalData else{continue}
-                    guard d.editor.text==local else{self.lastRemotePoll=0;continue}
+                    guard d.editor.text==local else{self.remoteCheckPending=true;continue}
                     if let file,file.originalData != old.originalData {self.receiveExternalFile(file,for:d,local:local,modified:modified,merge:merge)}
                     else if case .failure(let error)=read {
                         self.remoteTree?.showMessage(error.localizedDescription)
@@ -117,6 +143,9 @@ extension EditorWindowController {
                 }
             }
         }
+    }
+    private func finishRemoteChecks() {
+        let callbacks=remoteCheckCompletions;remoteCheckCompletions=[];callbacks.forEach{$0()}
     }
     func receiveExternalFile(_ file:TextFile,for d:DocumentTab,local:String,modified:Bool,merge:Result<ExternalMerge,Error>?) {
         if !modified && !d.isModified {

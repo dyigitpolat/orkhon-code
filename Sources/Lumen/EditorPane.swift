@@ -18,6 +18,7 @@ final class EditorPane:NSView {
     let closeSplit=NSButton()
     var document:DocumentTab?
     var markdown:MarkdownView?,html:HTMLPreview?
+    private var lastAssetKey:String?
     var externalControls:InlineExternalControls?
     weak var owner:EditorWindowController?
     var split=false
@@ -63,7 +64,7 @@ final class EditorPane:NSView {
         if d.previewMode != .source {
             if d.previewKind == .markdown {
                 if markdown == nil || markdown?.nativeOnly != d.isWelcome {markdown=MarkdownView(nativeOnly:d.isWelcome);markdown?.onOpen = { [weak owner] in owner?.openURL($0) }}
-                if let markdown {markdown.applyTheme(owner.theme);deck.preview.addSubview(markdown)}
+                if let markdown {markdown.onOpenRemote = { [weak owner] in owner?.openRemoteFile($0) };markdown.applyTheme(owner.theme);deck.preview.addSubview(markdown)}
             } else if d.previewKind == .html {
                 if html == nil {html=HTMLPreview(frame:.zero)}
                 if let html {deck.preview.addSubview(html)}
@@ -73,10 +74,16 @@ final class EditorPane:NSView {
         needsLayout=true
     }
     func schedulePreview() {guard document?.previewMode != .source else{return};refresh.schedule{[weak self] in self?.render()}}
-    func render() {
+    func refreshFilesystemPreview() {
+        guard let d=document,lastAssetKey != d.id+":"+String(d.previewAssetRevision) else{return}
+        render(invalidateAssets:true)
+    }
+    func render(invalidateAssets:Bool=false) {
         guard let d=document,d.previewMode != .source else{return}
-        if d.previewKind == .markdown {markdown?.render(d.editor.text,url:d.url,documentID:d.id)}
-        else if d.previewKind == .html {html?.render(d.editor.text,url:d.url,modified:d.isModified)}
+        let key=d.id+":"+String(d.previewAssetRevision)
+        let reload=invalidateAssets || (lastAssetKey != nil && lastAssetKey != key);lastAssetKey=key
+        if d.previewKind == .markdown {markdown?.render(d.editor.text,url:d.url,documentID:d.id,assetRevision:d.previewAssetRevision,remote:d.remotePath==nil ? nil:owner?.remote,remotePath:d.remotePath)}
+        else if d.previewKind == .html {html?.render(d.editor.text,url:d.url,modified:d.isModified,remote:d.remotePath==nil ? nil:owner?.remote,remotePath:d.remotePath,invalidateAssets:reload)}
     }
     override func draggingEntered(_ sender:NSDraggingInfo)->NSDragOperation {draggingUpdated(sender)}
     override func draggingUpdated(_ sender:NSDraggingInfo)->NSDragOperation {

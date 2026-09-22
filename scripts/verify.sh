@@ -8,6 +8,7 @@ scripts/test_editor.sh
 scripts/test_filetree.sh
 scripts/test_terminal.sh
 python3 scripts/generate_languages.py --check
+python3 scripts/test_workspace_watch.py
 swiftc Sources/Lumen/AssociationPolicy.swift scripts/test_associations.swift -o work/test-associations
 work/test-associations
 swiftc Sources/Lumen/WorkspacePaths.swift scripts/test_workspace.swift -o work/test-workspace

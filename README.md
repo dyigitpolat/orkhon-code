@@ -49,7 +49,7 @@ Preview Markdown or place it next to the source. The renderer supports tables an
 
 Rendering uses established open-source libraries: [markdown-it](https://github.com/markdown-it/markdown-it), [KaTeX](https://katex.org/), [Mermaid](https://mermaid.js.org/) and [DOMPurify](https://github.com/cure53/DOMPurify). Everything is bundled locally; there is no runtime CDN dependency. Markdown scripts, event handlers and unsafe links are blocked. HTML file preview is a separate, intentional browser view with relative CSS/JS support.
 
-**Preview work stays off the launch path.** A user-document Markdown preview creates WebKit only when requested. KaTeX loads only for formulas; Mermaid only for diagrams. Unchanged diagrams reuse a bounded cache. Edits debounce for 250 ms with a maximum scheduling delay of one second. The built-in welcome page uses lightweight native TextKit.
+**Preview work stays off the launch path.** A user-document Markdown preview creates WebKit only when requested. KaTeX loads only for formulas; Mermaid only for diagrams. Unchanged diagrams reuse a bounded cache. Edits debounce for 250 ms with a maximum scheduling delay of one second. Workspace filesystem events use a one-second debounce and three-second maximum scheduling delay, without filtering extensions or requiring files to be tracked by Git. Only visible previews render; hidden tabs invalidate their assets for the next view. macOS uses FSEvents plus direct notifications for open files. SSH uses a small, bundled Python 3 helper over one persistent channel (Linux inotify or macOS FSEvents); it installs nothing on the server. Unsupported/unavailable event monitoring falls back to ten-second reconciliation and retries the event connection. No repository-wide content hashing runs while idle. The built-in welcome page uses lightweight native TextKit.
 
 ## Architecture
 
@@ -65,6 +65,8 @@ The UI is AppKit, the editor is Scintilla, syntax comes from Lexilla, and termin
 | `Sources/Lumen/RichMarkdownView.swift` | Lazy Markdown web view and isolated resource origins |
 | `Sources/Lumen/MarkdownView.swift` | Native welcome-page rendering |
 | `Resources/MarkdownPreview` | Vendored, offline browser assets |
+| `Sources/Lumen/WorkspaceMonitor.swift` | Recursive local events, remote event channels and reconnects |
+| `Resources/workspace_watch.py` | Dependency-free SSH event helper; no server installation |
 | `Sources/Lumen/RemoteWorkspace.swift` | OpenSSH transport, quoting, bounded reads and optimistic saves |
 | `Sources/SSHAskpass` | Native authentication helper; no credential storage |
 | `Sources/Lumen/AssociationPolicy.swift` | Explicit text-format catalog, separate from highlighting coverage |
@@ -77,7 +79,7 @@ Commands belong in the relevant window-controller extension, with menus in `Menu
 make verify
 ```
 
-The complete suite uses real AppKit views, WebKit output and PTYs, so run it in a logged-in macOS desktop. Document fixtures and recovery data are isolated. SSH transport tests run locally and never connect to a server. CI builds the installer and tests association policy, merging and local SSH operations.
+The complete suite uses real AppKit views, WebKit output and PTYs, so run it in a logged-in macOS desktop. Document fixtures and recovery data are isolated. SSH transport tests use isolated local fixtures. Optional stress tests also exercise a disposable Linux SSH server on loopback; they never use your SSH profiles or connect to a personal server. See [watcher validation](docs/WATCHING.md). CI builds the installer and tests association policy, merging and local SSH operations.
 
 `python3 scripts/benchmark.py` measures fresh release processes with warm filesystem caches. Readiness includes window construction and synchronous AppKit drawing; it excludes Finder dispatch and compositor presentation. Preview and terminal processes start on demand. **A universal sub-100 ms launch guarantee is not established.** Compare distributions on the same Mac rather than a single best run.
 

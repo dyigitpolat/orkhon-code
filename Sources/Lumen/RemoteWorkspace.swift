@@ -112,9 +112,9 @@ final class RemoteWorkspace:@unchecked Sendable {
         guard entries.count<=20000 else {throw RemoteFailure(message:"This folder has more than 20,000 entries. Open a more specific remote folder.")}
         return entries.sorted{$0.directory != $1.directory ? $0.directory : $0.name.localizedStandardCompare($1.name) == .orderedAscending}
     }
-    func read(_ path:String)throws->Data {
+    func read(_ path:String,limit:Int=32*1024*1024)throws->Data {
         let q=Self.quote(path)
-        return try run("[ -f \(q) ] && [ ! -L \(q) ] || { echo 'Open a regular file; symbolic links are not edited remotely.' >&2; exit 65; }; cat < \(q)",limit:32*1024*1024)
+        return try run("[ -f \(q) ] && [ ! -L \(q) ] || { echo 'Open a regular file; symbolic links are not edited remotely.' >&2; exit 65; }; cat < \(q)",limit:limit)
     }
     func write(_ path:String,data:Data,expected:Data)throws {
         let hash=SHA256.hash(data:expected).map{String(format:"%02x",$0)}.joined()
@@ -166,6 +166,19 @@ final class RemoteWorkspace:@unchecked Sendable {
         while process.isRunning && Date()<deadline {Thread.sleep(forTimeInterval:0.01)}
         if process.isRunning {kill(process.processIdentifier,SIGKILL)}
         process.waitUntilExit()
+    }
+    /// Multiplexed event channel. The caller owns stdin and closes it to cancel.
+    func startEventProcess(_ script:String,input:Pipe,output:Pipe,onExit:@escaping @Sendable ()->Void)throws->Process {
+        let p=Process();p.executableURL=URL(fileURLWithPath:localTest ? "/bin/sh":"/usr/bin/ssh")
+        p.arguments=localTest ? ["-c",script] : ["-T","-o","BatchMode=yes","-o","ConnectTimeout=10","-o","ServerAliveInterval=10","-o","ServerAliveCountMax=2","-o","StrictHostKeyChecking=yes","-o","ControlPath=\(controlPath)"]+portArguments+["--",host,"/bin/sh -c "+Self.quote(script)]
+        p.standardInput=input;p.standardOutput=output;p.standardError=FileHandle.nullDevice
+        p.terminationHandler = { [weak self] process in
+            if let self {self.stateLock.lock();self.requests.removeValue(forKey:process.processIdentifier);self.stateLock.unlock()}
+            onExit()
+        }
+        stateLock.lock();defer{stateLock.unlock()}
+        if disconnectRequested {throw CancellationError()}
+        try p.run();requests[p.processIdentifier]=p;return p
     }
     func run(_ script:String,input:Data?=nil,limit:Int=1024*1024)throws->Data {
         let request=cacheURL.appendingPathComponent(UUID().uuidString,isDirectory:true)

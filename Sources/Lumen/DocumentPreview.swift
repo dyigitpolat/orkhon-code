@@ -105,9 +105,12 @@ final class HTMLPreview:NSView,WKNavigationDelegate {
     private var revision=0
     private var scrollPosition:CGPoint?
     private var sourceURL:URL?
+    private let remoteResources=RemotePreviewResources()
+    private var remoteOrigin=UUID().uuidString.lowercased()
     override init(frame:NSRect) {
         let configuration=WKWebViewConfiguration();configuration.websiteDataStore = .nonPersistent()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically=false
+        configuration.setURLSchemeHandler(remoteResources,forURLScheme:"orkhon-remote")
         web=WKWebView(frame:.zero,configuration:configuration)
         super.init(frame:frame);web.navigationDelegate=self;addSubview(web)
         errorLabel.isHidden=true;errorLabel.textColor = .secondaryLabelColor;addSubview(errorLabel)
@@ -121,15 +124,35 @@ final class HTMLPreview:NSView,WKNavigationDelegate {
         // CGRect.insetBy returns a null/infinite rectangle for a collapsed host.
         errorLabel.frame=NSRect(x:min(24,bounds.width/2),y:min(24,bounds.height/2),width:max(0,bounds.width-48),height:max(0,bounds.height-48))
     }
-    func render(_ text:String,url:URL?,modified:Bool) {
+    func render(_ text:String,url:URL?,modified:Bool,remote:RemoteWorkspace?=nil,remotePath:String?=nil,invalidateAssets:Bool=false) {
         revision+=1;let generation=revision
         guard text.utf8.count<=10*1024*1024 else {errorLabel.stringValue="This HTML file is too large for live preview. Its source remains fully editable.";errorLabel.isHidden=false;return}
         errorLabel.isHidden=true
-        let same=sourceURL==url;sourceURL=url
+        var previewURL=url
+        if remote != nil,let remotePath {
+            if invalidateAssets {remoteOrigin=UUID().uuidString.lowercased()}
+            var components=URLComponents();components.scheme="orkhon-remote";components.host=remoteOrigin;components.path=remotePath;previewURL=components.url
+        }
+        let same=sourceURL?.path==previewURL?.path;sourceURL=previewURL
+        remoteResources.connection=remote;remoteResources.origin=previewURL?.host
+        if remote != nil,let previewURL {remoteResources.document=(previewURL,text)} else {remoteResources.document=nil}
+        let loadURL=previewURL
+
         web.evaluateJavaScript("[window.scrollX,window.scrollY]") { [weak self] value,_ in
             guard let self,self.revision==generation else{return}
             self.scrollPosition=same ? (value as? [Double]).flatMap{$0.count==2 ? CGPoint(x:$0[0],y:$0[1]):nil}:nil
-            if let url,!modified {self.web.loadFileURL(url,allowingReadAccessTo:URL(fileURLWithPath:"/"));return}
+            if remote != nil,let loadURL {self.web.load(URLRequest(url:loadURL,cachePolicy:.reloadIgnoringLocalCacheData));return}
+            if invalidateAssets {
+                self.web.configuration.websiteDataStore.removeData(ofTypes:[WKWebsiteDataTypeDiskCache,WKWebsiteDataTypeMemoryCache],modifiedSince:.distantPast) { [weak self] in
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self,self.revision==generation else{return};self.loadLocal(text,url:url,modified:modified)
+                    }
+                }
+            } else {self.loadLocal(text,url:url,modified:modified)}
+        }
+    }
+    private func loadLocal(_ text:String,url:URL?,modified:Bool) {
+            if let url,!modified {web.loadFileURL(url,allowingReadAccessTo:URL(fileURLWithPath:"/"));return}
             // A file URL preserves browser file-origin semantics. <base> resolves relative
             // assets against the real document directory, including parent directories.
             var html=text
@@ -143,7 +166,6 @@ final class HTMLPreview:NSView,WKNavigationDelegate {
             let file=self.cache.appendingPathComponent("preview.html")
             do {try html.write(to:file,atomically:true,encoding:.utf8);self.web.loadFileURL(file,allowingReadAccessTo:URL(fileURLWithPath:"/"))}
             catch {self.errorLabel.stringValue=error.localizedDescription;self.errorLabel.isHidden=false}
-        }
     }
     func webView(_ webView:WKWebView,didFinish navigation:WKNavigation!) {
         if let point=scrollPosition {webView.evaluateJavaScript("window.scrollTo(\(point.x),\(point.y))",completionHandler:nil);scrollPosition=nil}

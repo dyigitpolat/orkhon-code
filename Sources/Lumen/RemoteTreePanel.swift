@@ -3,7 +3,7 @@ import AppKit
 private final class RemoteNode:NSObject {
     let entry:RemoteEntry
     var children:[RemoteNode]=[]
-    var loaded=false,loading=false
+    var loaded=false,loading=false,needsRefresh=false
     init(_ entry:RemoteEntry) {self.entry=entry}
 }
 
@@ -14,6 +14,7 @@ final class RemoteTreePanel:NSView,NSOutlineViewDataSource,NSOutlineViewDelegate
     private let refresh=NSButton(),disconnect=NSButton()
     private var root:RemoteNode?
     private var generation=0
+    var monitoringNote:String?
     var onOpen:((String)->Void)?,onDisconnect:(()->Void)?
     init(frame:NSRect,connection:RemoteWorkspace) {
         self.connection=connection;super.init(frame:frame)
@@ -30,18 +31,42 @@ final class RemoteTreePanel:NSView,NSOutlineViewDataSource,NSOutlineViewDelegate
     func applyTheme(_ theme:Theme) {wantsLayer=true;layer?.backgroundColor=theme.panelColor.cgColor;outline.backgroundColor=theme.panelColor;heading.textColor=theme.accentColor;outline.reloadData()}
     func showMessage(_ value:String) {message.stringValue=value;message.toolTip=value}
     func setRoot(_ path:String) {generation+=1;root=RemoteNode(RemoteEntry(path:path,directory:true,symbolicLink:false));outline.reloadData();if let root {load(root)}}
-    @objc func reload() {setRoot(connection.directory)}
+    @objc func reload() {refreshPreservingState()}
+    /// Refresh only folders already loaded; retain nodes, expansion and selection.
+    func refreshPreservingState() {
+        guard let root else{return}
+        var pending=[root]
+        while let node=pending.popLast() {
+            for child in node.children where child.entry.directory {
+                if outline.isItemExpanded(child),child.loaded {pending.append(child)}
+                else {child.loaded=false}
+            }
+            if node.loaded || node.loading {load(node)}
+        }
+    }
     @objc private func closeConnection() {onDisconnect?()}
     private func load(_ node:RemoteNode) {
-        guard !node.loading else{return};node.loading=true;let revision=generation;let path=node.entry.path;let connection=connection
+        guard !node.loading else{node.needsRefresh=true;return};node.loading=true;let revision=generation;let path=node.entry.path;let connection=connection
         showMessage("Loading \((path as NSString).lastPathComponent)…")
         Task { [weak self,weak node] in
             let result=await Task.detached {Result{try connection.list(path)}}.value
             guard let self,let node,self.generation==revision else{return};node.loading=false
             switch result {
-            case .success(let entries):node.children=entries.map(RemoteNode.init);node.loaded=true;self.outline.reloadItem(node===self.root ? nil:node,reloadChildren:true);self.showMessage(connection.directory)
+            case .success(let entries):
+                let existing=Dictionary(node.children.map{($0.entry.path,$0)},uniquingKeysWith:{$1})
+                let expanded=Set(node.children.filter{self.outline.isItemExpanded($0)}.map{$0.entry.path})
+                let selection=(self.outline.item(atRow:self.outline.selectedRow) as? RemoteNode)?.entry.path
+                node.children=entries.map {entry in
+                    if let old=existing[entry.path],old.entry.directory==entry.directory,old.entry.symbolicLink==entry.symbolicLink {return old}
+                    return RemoteNode(entry)
+                }
+                node.loaded=true;self.outline.reloadItem(node===self.root ? nil:node,reloadChildren:true)
+                for child in node.children where expanded.contains(child.entry.path) {self.outline.expandItem(child)}
+                if let selection {for row in 0..<self.outline.numberOfRows where (self.outline.item(atRow:row) as? RemoteNode)?.entry.path==selection {self.outline.selectRowIndexes(IndexSet(integer:row),byExtendingSelection:false)}}
+                self.showMessage(self.monitoringNote ?? connection.directory)
             case .failure(let error):self.showMessage(error.localizedDescription)
             }
+            if node.needsRefresh {node.needsRefresh=false;self.load(node)}
         }
     }
     func outlineView(_ outlineView:NSOutlineView,numberOfChildrenOfItem item:Any?)->Int {(item as? RemoteNode ?? root)?.children.count ?? 0}
