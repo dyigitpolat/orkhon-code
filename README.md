@@ -63,7 +63,7 @@ make verify
 
 The full suite requires a logged-in macOS desktop because it tests real AppKit windows and PTYs. All document fixtures and recovery data are isolated under `work/` or private temporary directories. SSH transport tests run locally; they never connect to a server. CI builds the installer and exercises file-association policy, merging and local SSH operations. The workflow is included but has not run on a remote repository until you publish one.
 
-`./scripts/benchmark.py` accepts the app's executable path and measures fresh processes with warm filesystem caches. Readiness includes window construction and synchronous AppKit drawing; it does not measure compositor presentation or Finder dispatch. Preview and terminal processes start only on demand. A universal sub-100 ms launch guarantee is not established; compare measured distributions on the target machine.
+`python3 scripts/benchmark.py` accepts the app's executable path and measures fresh processes with warm filesystem caches. Readiness includes window construction and synchronous AppKit drawing; it does not measure compositor presentation or Finder dispatch. Preview and terminal processes start only on demand. A universal sub-100 ms launch guarantee is not established; compare measured distributions on the target machine.
 
 The storage limit is 256 MB, remote files 32 MB, Markdown preview 5 MB, HTML live preview 10 MB, and automatic merge inputs 8 MB each. Larger merge conflicts retain the working buffer and offer explicit review/save-copy choices. Recovery is best effort, approximately 0.8 seconds after editing. Concurrent writes from unrelated applications can still race an optimistic save.
 
