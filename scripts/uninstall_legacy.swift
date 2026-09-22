@@ -48,7 +48,7 @@ if args.count > 1 && args[1] == "running" {
 } else if args.count > 1 && args[1] == "audit" {
  let prefs=try preferences();let handlers=prefs["LSHandlers"] as? [[String:Any]] ?? []
  print("Remaining Orkhon role overrides: \(handlers.filter{entry in entry.contains{key,value in key.hasPrefix("LSHandlerRole") && (value as? String)?.lowercased().hasPrefix("app.orkhon.")==true}}.count)")
- for ext in ["html","htm","shtml","xhtml","svg","xml","txt","swift","py","js","ts","mts","m2ts","plist","ps","url","pxd","tpl","log","as"] {
+ for ext in ["md","cpp","cp","hpp","html","htm","shtml","xhtml","svg","xml","txt","swift","py","js","ts","mts","m2ts","plist","ps","url","pxd","tpl","log","as"] {
   let type=UTType(filenameExtension:ext)
   let handler=type.flatMap{LSCopyDefaultRoleHandlerForContentType($0.identifier as CFString,.all)?.takeRetainedValue() as String?}
   print("\(ext): \(type?.identifier ?? "unknown") → \(handler ?? "automatic / unassigned")")

@@ -2021,7 +2021,9 @@ bool ScintillaCocoa::SetScrollingSize() {
 			docHeight = clipRect.size.height;
 		const bool showHorizontalScroll = horizontalScrollBarVisible &&
 					    !Wrapping();
-		const CGFloat docWidth = Wrapping() ? clipRect.size.width : scrollWidth;
+		// Orkhon: the document view must also cover blank space to the right
+		// of short lines, so clicks there reach Scintilla and select line end.
+		const CGFloat docWidth = Wrapping() ? clipRect.size.width : std::max(clipRect.size.width, static_cast<CGFloat>(scrollWidth));
 		const NSRect contentRect = NSMakeRect(0, 0, docWidth, docHeight);
 		changes = !CGSizeEqualToSize(contentRect.size, inner.frame.size);
 		if (changes) {
@@ -2770,5 +2772,4 @@ void ScintillaCocoa::HideFindIndicator() {
 	}
 #endif
 }
-
 

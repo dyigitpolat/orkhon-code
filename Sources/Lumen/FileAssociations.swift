@@ -37,7 +37,7 @@ enum FileAssociations {
             let appURL=current.flatMap{NSWorkspace.shared.urlForApplication(withBundleIdentifier:$0)}
             let name=appURL.map{FileManager.default.displayName(atPath:$0.path).replacingOccurrences(of:".app",with:"")} ?? current ?? "No default app"
             let reason = !safeAliases ? "macOS also maps this type to an ambiguous extension":(specialist ? "Kept in its current specialist app":nil)
-            results.append(AssociationChoice(type:type,extensions:knownExtensions.sorted(),previous:current,observed:observed,currentName:name,eligible:eligible,reason:reason))
+            results.append(AssociationChoice(type:type,extensions:aliases,previous:current,observed:observed,currentName:name,eligible:eligible,reason:reason))
         }
         return results.sorted{$0.label.localizedStandardCompare($1.label) == .orderedAscending}
     }
@@ -86,23 +86,23 @@ final class FirstLaunchSetup:NSWindowController {
     init(parent:NSWindow,onFinish:@escaping ()->Void) {
         choices=FileAssociations.choices();self.onFinish=onFinish
         let panel=NSPanel(contentRect:NSRect(x:0,y:0,width:660,height:570),styleMask:[.titled,.fullSizeContentView],backing:.buffered,defer:false)
-        super.init(window:panel);panel.title="Set up Orkhon Editor";panel.titleVisibility = .hidden;panel.titlebarAppearsTransparent=true;panel.isReleasedWhenClosed=false;panel.appearance=parent.effectiveAppearance
+        super.init(window:panel);panel.title="Set up Orkhon Code";panel.titleVisibility = .hidden;panel.titlebarAppearsTransparent=true;panel.isReleasedWhenClosed=false;panel.appearance=parent.effectiveAppearance
         let content=NSView();panel.contentView=content
         let title=NSTextField(labelWithString:"Make Orkhon your source editor")
         title.font = .systemFont(ofSize:23,weight:.semibold);title.frame=NSRect(x:28,y:507,width:610,height:34)
-        let detail=NSTextField(wrappingLabelWithString:"Recommended file types are selected. Deselect any you want to keep in their current app. Nothing changes until you confirm.")
-        detail.font = .systemFont(ofSize:13);detail.textColor = .secondaryLabelColor;detail.frame=NSRect(x:30,y:452,width:600,height:46)
+        let detail=NSTextField(wrappingLabelWithString:"Recommended file types are selected. Deselect any you want to keep in their current app. Nothing changes until you confirm. C++ includes .cp because macOS shares its default.")
+        detail.font = .systemFont(ofSize:13);detail.textColor = .secondaryLabelColor;detail.frame=NSRect(x:30,y:447,width:600,height:52)
         let scroll=NSScrollView(frame:NSRect(x:24,y:108,width:612,height:332));scroll.hasVerticalScroller=true;scroll.autohidesScrollers=true;scroll.drawsBackground=false
         let rows=NSView(frame:NSRect(x:0,y:0,width:598,height:max(332,CGFloat((choices.count+1)/2)*36)))
         for (index,choice) in choices.enumerated() {
             let x=CGFloat(index%2)*299,y=rows.bounds.height-CGFloat(index/2+1)*36
-            let toggle=NSButton(checkboxWithTitle:choice.label,target:self,action:#selector(selectionChanged));toggle.frame=NSRect(x:x+5,y:y+13,width:282,height:22);toggle.font = .monospacedSystemFont(ofSize:12,weight:.medium);toggle.state = choice.eligible ? .on:.off;toggle.isEnabled=choice.eligible;toggle.toolTip=choice.reason ?? "\(choice.label) — currently \(choice.currentName)";toggle.setAccessibilityLabel("Open \(choice.label) in Orkhon; currently \(choice.currentName)")
+            let toggle=NSButton(checkboxWithTitle:choice.label,target:self,action:#selector(selectionChanged));toggle.frame=NSRect(x:x+5,y:y+13,width:282,height:22);toggle.font = .monospacedSystemFont(ofSize:12,weight:.medium);toggle.lineBreakMode = .byTruncatingTail;toggle.state = choice.eligible ? .on:.off;toggle.isEnabled=choice.eligible;toggle.toolTip=choice.reason ?? "\(choice.label) — currently \(choice.currentName)";toggle.setAccessibilityLabel("Open \(choice.label) in Orkhon; currently \(choice.currentName)")
             let label=NSTextField(labelWithString:choice.currentName+(choice.eligible ? "":" · protected"));label.frame=NSRect(x:x+25,y:y,width:255,height:17);label.font = .systemFont(ofSize:10);label.textColor = .secondaryLabelColor;label.lineBreakMode = .byTruncatingTail
             rows.addSubview(toggle);rows.addSubview(label);toggles.append(toggle)
         }
         if choices.isEmpty {let empty=NSTextField(wrappingLabelWithString:"File types could not be loaded. Reopen File Defaults to try again; no defaults have changed.");empty.frame=NSRect(x:18,y:140,width:560,height:50);rows.addSubview(empty)}
         scroll.documentView=rows;rows.scroll(NSPoint(x:0,y:rows.bounds.height))
-        statusLabel.font = .systemFont(ofSize:11);statusLabel.textColor = .secondaryLabelColor;statusLabel.frame=NSRect(x:30,y:80,width:600,height:18)
+        statusLabel.font = .systemFont(ofSize:11);statusLabel.textColor = .secondaryLabelColor;statusLabel.frame=NSRect(x:30,y:80,width:600,height:18);statusLabel.lineBreakMode = .byTruncatingTail
         skipButton.isBordered=false;skipButton.font = .systemFont(ofSize:12);skipButton.target=self;skipButton.action=#selector(skip);skipButton.frame=NSRect(x:24,y:25,width:200,height:36)
         actionButton.target=self;actionButton.action=#selector(applySelection);actionButton.font = .systemFont(ofSize:12,weight:.medium);actionButton.frame=NSRect(x:343,y:25,width:291,height:36)
         for view in [title,detail,scroll,statusLabel,skipButton,actionButton] {content.addSubview(view)}
@@ -113,7 +113,7 @@ final class FirstLaunchSetup:NSWindowController {
     @objc private func selectionChanged() {
         let count=toggles.filter{$0.state == .on}.count
         actionButton.title=count==0 ? "Continue without changes":"Apply defaults and start editing"
-        statusLabel.stringValue="\(count) file groups selected · Browser, media, design, and ambiguous formats stay protected."
+        statusLabel.stringValue="\(count) file groups selected · Browser, media, design, and other ambiguous formats stay protected."
     }
     @objc private func skip() {guard !busy else{return};finish()}
     @objc private func applySelection() {
@@ -130,19 +130,20 @@ final class FirstLaunchSetup:NSWindowController {
             }
         }
     }
-    private func finish() {UserDefaults.standard.set(true,forKey:"fileSetupCompletedV4");if let window {window.sheetParent?.endSheet(window);window.orderOut(nil)};onFinish()}
+    private func finish() {UserDefaults.standard.set(true,forKey:"fileSetupCompletedV5");if let window {window.sheetParent?.endSheet(window);window.orderOut(nil)};onFinish()}
 }
 
 extension EditorWindowController {
     func offerFirstLaunchSetup() {
         guard ProcessInfo.processInfo.environment["ORKHON_SKIP_SETUP"] == nil else{return}
-        let firstLaunch = !UserDefaults.standard.bool(forKey:"fileSetupCompletedV4")
+        let firstLaunch = !UserDefaults.standard.bool(forKey:"fileSetupCompletedV5")
         if firstLaunch || ProcessInfo.processInfo.arguments.contains("--welcome") {showWelcome()}
         if firstLaunch {showFileSetup(nil)}
         recordStartupTestIfRequested()
     }
     @objc func showFileSetup(_ sender:Any?) {
         guard window.attachedSheet == nil else{return}
-        setupWindow=FirstLaunchSetup(parent:window) { [weak self] in self?.setupWindow=nil;self?.bringToFront() };setupWindow?.present(on:window)
+        let setup=FirstLaunchSetup(parent:window) { [weak self] in self?.setupWindow=nil;self?.bringToFront() }
+        setupWindow=setup;setup.present(on:window)
     }
 }

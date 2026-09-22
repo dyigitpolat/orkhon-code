@@ -26,6 +26,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic) CGFloat fontSize;
 
 - (void)markSaved;
+- (void)setExternalAnnotation:(NSString *)text atLine:(NSInteger)line NS_SWIFT_NAME(setExternalAnnotation(_:atLine:));
+- (void)setExternalAnnotation:(NSString *)text styles:(NSData *)styles atLine:(NSInteger)line NS_SWIFT_NAME(setExternalAnnotation(_:styles:atLine:));
+- (void)clearExternalAnnotations;
+/// Bounds of two annotation display rows, in this view's coordinates.
+- (NSRect)externalAnnotationFrameAtLine:(NSInteger)line row:(NSInteger)row NS_SWIFT_NAME(externalAnnotationFrame(atLine:row:));
 /// Replaces the primary selection as an undoable edit, preserving the save point.
 - (void)insertRecoveredText:(NSString *)text NS_SWIFT_NAME(insertRecoveredText(_:));
 - (void)focus;

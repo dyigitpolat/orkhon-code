@@ -4,7 +4,7 @@ cd "${0:A:h:h}"
 export CLANG_MODULE_CACHE_PATH="$PWD/work/module-cache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/work/module-cache"
 if [[ "$(uname -s)" != Darwin || "$(uname -m)" != arm64 ]]; then
-    print -u2 "Orkhon Editor currently builds on Apple silicon Macs."
+    print -u2 "Orkhon Code currently builds on Apple silicon Macs."
     exit 2
 fi
 xcrun --find swiftc >/dev/null

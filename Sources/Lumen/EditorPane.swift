@@ -18,6 +18,7 @@ final class EditorPane:NSView {
     let closeSplit=NSButton()
     var document:DocumentTab?
     var markdown:MarkdownView?,html:HTMLPreview?
+    var externalControls:InlineExternalControls?
     weak var owner:EditorWindowController?
     var split=false
     private let dropOverlay=PaneDropOverlay()
@@ -38,7 +39,7 @@ final class EditorPane:NSView {
     }
     func bind(_ document:DocumentTab,owner:EditorWindowController) {
         self.owner=owner
-        if self.document !== document {self.document?.editor.removeFromSuperview();self.document=document;deck.source.addSubview(document.editor)}
+        if self.document !== document {self.document?.editor.removeFromSuperview();self.document=document;deck.split.ratio=0.5;deck.source.addSubview(document.editor)}
         updatePreview()
     }
     override func layout() {
@@ -49,12 +50,16 @@ final class EditorPane:NSView {
     }
     func updatePreview() {
         guard let d=document,let owner else{return}
-        refresh.cancel();markdown?.removeFromSuperview();html?.removeFromSuperview();d.editor.isHidden=false
+        refresh.cancel();markdown?.removeFromSuperview();html?.removeFromSuperview();externalControls?.removeFromSuperview();d.editor.isHidden=false
         if split && d.previewMode == .split {d.previewMode = .source}
         if document?.previewKind == nil {d.previewMode = .source}
         title.stringValue=d.title;title.textColor=owner.current === d ? owner.theme.accentColor:owner.theme.foreground
         titleBar.color(owner.theme.panelColor);closeSplit.contentTintColor=owner.theme.foreground
         deck.configure(kind:d.previewKind,mode:d.previewMode,theme:owner.theme,allowSplit:!split)
+        if d.externalChange != nil {
+            if externalControls?.document !== d {externalControls=InlineExternalControls(document:d,owner:owner)}
+            if let externalControls {deck.source.addSubview(externalControls);externalControls.reload()}
+        } else {externalControls=nil}
         if d.previewMode != .source {
             if d.previewKind == .markdown {
                 if markdown == nil {markdown=MarkdownView(frame:.zero);markdown?.onOpen = { [weak owner] in owner?.openURL($0) }}

@@ -3,7 +3,7 @@ build:
 	./scripts/build.sh
 
 install: build
-	open "outputs/Orkhon Editor Installer.pkg"
+	open "outputs/Orkhon Code Installer.pkg"
 
 verify:
 	./scripts/verify.sh

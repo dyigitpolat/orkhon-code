@@ -9,7 +9,7 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     cat <<'HELP'
 Usage: scripts/test_terminal.sh
 
-Build and run Orkhon Editor's native terminal integration checks.
+Build and run Orkhon Code's native terminal integration checks.
 Requires macOS, Command Line Tools with Swift 6.0+, a logged-in GUI session,
 and the existing Vendor/SwiftTerm v1.10.1 sources. Downloads nothing.
 
@@ -38,7 +38,7 @@ vendor_dir="$root/Vendor/SwiftTerm"
 mkdir -p "$build_dir/module-cache" "$build_dir/runtime"
 
 run_suite() {
-    printf 'Orkhon Editor — native terminal validation\n'
+    printf 'Orkhon Code — native terminal validation\n'
     date -u '+Run started: %Y-%m-%d %H:%M:%S UTC'
     printf 'Report: %s/report.txt\n' "$build_dir"
     xcrun swiftc --version

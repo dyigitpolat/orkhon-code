@@ -6,9 +6,35 @@ public struct MergeConflict:Sendable {
     public let localStartLine:Int,localLineCount:Int
 }
 public enum MergePart:Sendable {case text(String),conflict(Int)}
+public struct ExternalHunk:Sendable {
+    public let current:String,external:String,original:String
+    public let localStartLine:Int,localLineCount:Int
+    public let conflictIndex:Int?
+    public let baseStartLine:Int
+}
 public struct ExternalMerge:Sendable {
     public let parts:[MergePart],conflicts:[MergeConflict],diff:String
+    public let changes:[ExternalHunk]
     private let mineFinalNewline:Bool,diskFinalNewline:Bool,baseFinalNewline:Bool
+    /// Apply only explicitly chosen hunks; every unchosen span retains the exact
+    /// working version. This supports immediate, individual inline decisions.
+    public func applyingHunks(_ choices:[Int:Int],to mine:String)->String? {
+        let source=Self.lines(mine)
+        var result="",cursor=0,finalNewline=mineFinalNewline
+        for (index,hunk) in changes.enumerated() {
+            guard let choice=choices[index] else{continue}
+            guard (0...2).contains(choice) else{return nil}
+            let start=hunk.localStartLine,end=start+(hunk.current.isEmpty ? 0:hunk.current.utf8.filter{$0==10}.count)
+            guard start>=cursor,end<=source.count else{return nil}
+            result+=source[cursor..<start].joined()
+            result+=choice==0 ? hunk.current:(choice==1 ? hunk.external:hunk.current+hunk.external)
+            cursor=end
+            if end==source.count {finalNewline=choice==0 ? mineFinalNewline:diskFinalNewline}
+        }
+        result+=source[cursor...].joined()
+        if !finalNewline,result.hasSuffix("\n") {result.removeLast();if result.hasSuffix("\r"){result.removeLast()}}
+        return result
+    }
     public func resolved(_ choices:[Int:Int])->String? {
         var result=""
         for part in parts {
@@ -39,7 +65,7 @@ public struct ExternalMerge:Sendable {
         for edit in diskChanges {allEdits.append(TaggedEdit(side:1,edit:edit))}
         allEdits.sort { a,b in if a.edit.start==b.edit.start {return a.edit.end<b.edit.end};return a.edit.start<b.edit.start }
         var next=0
-        var parts:[MergePart]=[],conflicts:[MergeConflict]=[],cursor=0,localLine=0
+        var parts:[MergePart]=[],conflicts:[MergeConflict]=[],changes:[ExternalHunk]=[],cursor=0,localLine=0
         func append(_ text:String) {if !text.isEmpty {parts.append(.text(text))}}
         while next<allEdits.count {
             var group=[allEdits[next]];next+=1
@@ -55,13 +81,16 @@ public struct ExternalMerge:Sendable {
             append(baseLines[cursor..<start].joined());localLine+=start-cursor
             let local=group.filter{$0.side==0}.map(\.edit),external=group.filter{$0.side==1}.map(\.edit)
             let mineText=applying(local,to:baseLines,start:start,end:end),diskText=applying(external,to:baseLines,start:start,end:end)
+            if !external.isEmpty,mineText != diskText {
+                changes.append(ExternalHunk(current:mineText,external:diskText,original:baseLines[start..<end].joined(),localStartLine:localLine,localLineCount:max(1,mineText.utf8.filter{$0==10}.count),conflictIndex:local.isEmpty ? nil:conflicts.count,baseStartLine:start))
+            }
             if local.isEmpty {append(diskText)}
             else if external.isEmpty || mineText==diskText {append(mineText)}
             else {parts.append(.conflict(conflicts.count));conflicts.append(MergeConflict(mine:mineText,disk:diskText,localStartLine:localLine,localLineCount:max(1,mineText.utf8.filter{$0==10}.count)))}
             localLine+=mineText.utf8.filter{$0==10}.count;cursor=end
         }
         append(baseLines[cursor...].joined())
-        return ExternalMerge(parts:parts,conflicts:conflicts,diff:diff,mineFinalNewline:mine.hasSuffix("\n"),diskFinalNewline:disk.hasSuffix("\n"),baseFinalNewline:base.hasSuffix("\n"))
+        return ExternalMerge(parts:parts,conflicts:conflicts,diff:diff,changes:changes,mineFinalNewline:mine.hasSuffix("\n"),diskFinalNewline:disk.hasSuffix("\n"),baseFinalNewline:base.hasSuffix("\n"))
     }
     private struct Edit {let start:Int,end:Int,replacement:String}
     private struct TaggedEdit {let side:Int,edit:Edit}

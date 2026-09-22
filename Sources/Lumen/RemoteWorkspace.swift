@@ -3,7 +3,11 @@ import CryptoKit
 import Darwin
 
 struct RemoteEntry:Sendable {let path:String;let directory:Bool;let symbolicLink:Bool;var name:String {(path as NSString).lastPathComponent}}
-struct RemoteFailure:LocalizedError {let message:String;var errorDescription:String? {message}}
+struct RemoteFailure:LocalizedError {
+    let message:String,exitStatus:Int32?
+    init(message:String,exitStatus:Int32?=nil) {self.message=message;self.exitStatus=exitStatus}
+    var errorDescription:String? {message}
+}
 
 /// Uses the macOS OpenSSH client: its config, agent, authentication and host-key checks.
 /// All file operations run away from the UI. Commands quote every remote pathname.
@@ -18,6 +22,7 @@ final class RemoteWorkspace:@unchecked Sendable {
     private let localTest:Bool
     private let stateLock=NSLock()
     private var disconnectRequested=false
+    private var requests:[Int32:Process]=[:]
     init(host:String,directory:String,localTest:Bool=false,port:Int?=nil) throws {
         guard Self.validHost(host) else {throw RemoteFailure(message:"Enter an SSH-config alias or user@hostname, without options or spaces.")}
         guard port == nil || (1...65535).contains(port!) else {throw RemoteFailure(message:"Port must be between 1 and 65535.")}
@@ -65,6 +70,26 @@ final class RemoteWorkspace:@unchecked Sendable {
     func canonicalDirectory(_ path:String)throws->String {
         let command=(path.isEmpty ? "cd":"cd -- "+Self.quote(path))+" && pwd -P"
         return try String(decoding:run(command),as:UTF8.self).trimmingCharacters(in:.newlines)
+    }
+    static func checksum(_ data:Data)->String {SHA256.hash(data:data).map{String(format:"%02x",$0)}.joined()}
+    func checksums(_ paths:[String])throws->[String:String] {
+        guard !paths.isEmpty else{return [:]}
+        let script="""
+        set -eu
+        for path in \(paths.map(Self.quote).joined(separator:" ")); do
+            if [ ! -f "$path" ] || [ -L "$path" ]; then printf 'missing\\000'; continue; fi
+            size=$(wc -c < "$path")
+            if [ "$size" -gt 33554432 ]; then printf 'oversize\\000'; continue; fi
+            if command -v sha256sum >/dev/null 2>&1; then hash=$(sha256sum < "$path")
+            elif command -v shasum >/dev/null 2>&1; then hash=$(shasum -a 256 < "$path")
+            elif command -v sha256 >/dev/null 2>&1; then hash=$(sha256 -q < "$path")
+            else echo 'The server needs sha256sum, shasum, or sha256 for change monitoring.' >&2; exit 69; fi
+            printf '%s\\000' "${hash%% *}"
+        done
+        """
+        let values=try run(script,limit:max(4096,paths.count*80)).split(separator:0).map{String(decoding:$0,as:UTF8.self)}
+        guard values.count==paths.count else{throw RemoteFailure(message:"The server returned an invalid file-change response.")}
+        return Dictionary(zip(paths,values),uniquingKeysWith:{$1})
     }
     func list(_ path:String)throws->[RemoteEntry] {
         let script="""
@@ -118,11 +143,12 @@ final class RemoteWorkspace:@unchecked Sendable {
         _ = try run(directory ? "mkdir -- "+Self.quote(path) : "(set -C; : > "+Self.quote(path)+")")
     }
     func disconnect() {
-        stateLock.lock();let already=disconnectRequested;disconnectRequested=true;let process=master;master=nil;stateLock.unlock()
+        stateLock.lock();let already=disconnectRequested;disconnectRequested=true;let process=master;master=nil;let pending=Array(requests.values);stateLock.unlock()
         guard !already else{return}
         let cache=cacheURL,path=controlPath,destination=host,shouldStop = !localTest && ready
-        if !shouldStop {DispatchQueue.global(qos:.utility).async {if let process {Self.stop(process)};try? FileManager.default.removeItem(at:cache)};return}
+        if !shouldStop {DispatchQueue.global(qos:.utility).async {pending.forEach(Self.stop);if let process {Self.stop(process)};try? FileManager.default.removeItem(at:cache)};return}
         DispatchQueue.global(qos:.utility).async {
+            pending.forEach(Self.stop)
             let p=Process();p.executableURL=URL(fileURLWithPath:"/usr/bin/ssh");p.arguments=["-S",path,"-O","exit","--",destination];p.standardOutput=FileHandle.nullDevice;p.standardError=FileHandle.nullDevice
             if (try? p.run()) != nil {
                 let deadline=Date().addingTimeInterval(3)
@@ -152,7 +178,11 @@ final class RemoteWorkspace:@unchecked Sendable {
         let p=Process();p.executableURL=URL(fileURLWithPath:localTest ? "/bin/sh":"/usr/bin/ssh")
         p.arguments=localTest ? ["-c",script] : ["-o","BatchMode=yes","-o","ConnectTimeout=10","-o","ServerAliveInterval=10","-o","ServerAliveCountMax=2","-o","StrictHostKeyChecking=yes","-o","ControlPath=\(controlPath)"]+portArguments+["--",host,"/bin/sh -c "+Self.quote(script)]
         p.standardInput=stdin;p.standardOutput=stdout;p.standardError=stderr
-        try p.run();let deadline=Date().addingTimeInterval(60)
+        stateLock.lock()
+        if disconnectRequested {stateLock.unlock();throw CancellationError()}
+        do {try p.run();requests[p.processIdentifier]=p;stateLock.unlock()} catch {stateLock.unlock();throw error}
+        defer{stateLock.lock();requests.removeValue(forKey:p.processIdentifier);stateLock.unlock()}
+        let deadline=Date().addingTimeInterval(60)
         while p.isRunning {
             let size=(try? FileManager.default.attributesOfItem(atPath:output.path)[.size] as? NSNumber)?.intValue ?? 0
             let errorSize=(try? FileManager.default.attributesOfItem(atPath:error.path)[.size] as? NSNumber)?.intValue ?? 0
@@ -163,7 +193,7 @@ final class RemoteWorkspace:@unchecked Sendable {
         guard p.terminationStatus==0 else {
             let handle=try? FileHandle(forReadingFrom:error);defer{try? handle?.close()}
             let message=String(decoding:(try? handle?.read(upToCount:1024*1024)) ?? Data(),as:UTF8.self).trimmingCharacters(in:.whitespacesAndNewlines)
-            throw RemoteFailure(message:message.isEmpty ? "SSH operation failed (\(p.terminationStatus)).":message)
+            throw RemoteFailure(message:message.isEmpty ? "SSH operation failed (\(p.terminationStatus)).":message,exitStatus:p.terminationStatus)
         }
         let finalSize=(try FileManager.default.attributesOfItem(atPath:output.path)[.size] as? NSNumber)?.intValue ?? 0
         guard finalSize<=limit else {throw RemoteFailure(message:"Remote response is too large.")}

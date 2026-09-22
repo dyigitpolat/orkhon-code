@@ -4,6 +4,25 @@ import WebKit
 enum PreviewMode:Int,Codable {case source,preview,split}
 enum PreviewKind {case markdown,html}
 
+/// A divider resizes these hosts without laying out the outer toolbar. Each host
+/// owns its child's geometry so the editor and renderer follow every drag frame.
+final class PreviewContentHost:NSView {
+    override init(frame:NSRect) {super.init(frame:frame);autoresizesSubviews=false;wantsLayer=true;layer?.masksToBounds=true}
+    required init?(coder:NSCoder) {fatalError("Use init(frame:)")}
+    override func layout() {super.layout();for child in subviews {child.frame=bounds;child.needsLayout=true}}
+}
+
+final class PreviewIconButton:NSButton {
+    var accent=NSColor.controlAccentColor,foreground=NSColor.labelColor
+    override var state:NSControl.StateValue {didSet{needsDisplay=true}}
+    override func draw(_ dirtyRect:NSRect) {
+        let selected=state == .on
+        (selected ? accent.withAlphaComponent(0.22):foreground.withAlphaComponent(isHighlighted ? 0.16:0.07)).setFill()
+        NSBezierPath(ovalIn:bounds.insetBy(dx:1,dy:1)).fill()
+        contentTintColor=selected ? accent:foreground;super.draw(dirtyRect)
+    }
+}
+
 /// Debounces typing without postponing a visible update indefinitely.
 @MainActor
 final class PreviewRefresh {
@@ -25,10 +44,10 @@ final class PreviewRefresh {
 
 @MainActor
 final class PreviewDeck:NSView {
-    let source=NSView(),preview=NSView(),split=PaneSplitView(frame:.zero)
+    let source=PreviewContentHost(frame:.zero),preview=PreviewContentHost(frame:.zero),split=PaneSplitView(frame:.zero)
     let toolbar=Surface()
     private let kindLabel=NSTextField(labelWithString:"")
-    private var buttons:[PillButton]=[]
+    private var buttons:[NSButton]=[]
     var onMode:((PreviewMode)->Void)?
     var mode=PreviewMode.source
     var available=false
@@ -38,7 +57,13 @@ final class PreviewDeck:NSView {
         split.addArrangedSubview(source);split.addArrangedSubview(preview);addSubview(split);addSubview(toolbar)
         kindLabel.font = .systemFont(ofSize:11,weight:.medium);toolbar.addSubview(kindLabel)
         for (i,title) in ["Source","Preview","Side by side"].enumerated() {
-            let button=PillButton(title:title,target:self,action:#selector(choose(_:)));button.tag=i
+            let button:NSButton
+            if i==0 {button=PillButton(title:title,target:self,action:#selector(choose(_:)))}
+            else {
+                let icon=PreviewIconButton(image:NSImage(systemSymbolName:i==1 ? "eye":"rectangle.split.2x1",accessibilityDescription:title) ?? NSImage(),target:self,action:#selector(choose(_:)))
+                icon.isBordered=false;icon.imageScaling = .scaleProportionallyDown;icon.toolTip=title;button=icon
+            }
+            button.tag=i
             button.font = .systemFont(ofSize:11,weight:.medium);button.setAccessibilityLabel(title);buttons.append(button);toolbar.addSubview(button)
         }
     }
@@ -48,7 +73,13 @@ final class PreviewDeck:NSView {
         available=kind != nil;self.allowSplit=allowSplit;self.mode=available ? mode:.source
         toolbar.color(theme.panelColor);kindLabel.stringValue=kind == .html ? "HTML":"MARKDOWN";kindLabel.textColor=NSColor(hex:theme.muted)
         toolbar.isHidden = !available;source.isHidden=self.mode == .preview;preview.isHidden=self.mode == .source
-        for button in buttons {button.isHidden=button.tag==2 && !allowSplit;button.isEnabled=button.tag != 2 || allowSplit;button.toolTip=button.tag == 2 && !allowSplit ? "Close the second editor pane to use side-by-side preview":nil;button.state=button.tag==self.mode.rawValue ? .on:.off;button.accent=theme.accentColor;button.foreground=theme.foreground;button.needsDisplay=true}
+        for button in buttons {
+            button.isHidden=button.tag==2 && !allowSplit;button.isEnabled=button.tag != 2 || allowSplit
+            button.state=button.tag==self.mode.rawValue ? .on:.off
+            if let pill=button as? PillButton {pill.accent=theme.accentColor;pill.foreground=theme.foreground}
+            if let icon=button as? PreviewIconButton {icon.accent=theme.accentColor;icon.foreground=theme.foreground}
+            button.needsDisplay=true
+        }
         needsLayout=true
     }
     override func layout() {
@@ -56,8 +87,8 @@ final class PreviewDeck:NSView {
         toolbar.frame=NSRect(x:0,y:bounds.height-h,width:bounds.width,height:h)
         kindLabel.frame=NSRect(x:16,y:11,width:90,height:16)
         kindLabel.isHidden=bounds.width<400
-        var x=max(8,bounds.width-(allowSplit ? 281:168))
-        for (i,button) in buttons.enumerated() {let w:CGFloat=i==2 ? 102:76;button.frame=NSRect(x:x,y:5,width:w,height:28);x+=w+5}
+        var x=max(8,bounds.width-(allowSplit ? 154:120))
+        for (i,button) in buttons.enumerated() {let w:CGFloat=i==0 ? 70:28;button.frame=NSRect(x:x,y:5,width:w,height:28);x+=w+6}
         split.frame=NSRect(x:0,y:0,width:bounds.width,height:max(0,bounds.height-h))
         split.adjustSubviews()
         for host in [source,preview] {for child in host.subviews {child.frame=host.bounds}}
@@ -133,6 +164,7 @@ extension DocumentTab {
 extension EditorWindowController {
     func setPreviewMode(_ mode:PreviewMode) {
         guard let d=current,d.previewKind != nil,mode != .split || !editorIsSplit else{return}
+        if mode == .split,d.previewMode != .split {activePane.deck.split.ratio=0.5}
         d.previewMode=mode;updateMarkdownPreview();if mode != .preview {d.editor.focus()}
     }
     @objc func toggleMarkdown(_ sender:Any?) {setPreviewMode(current?.previewMode == .source ? .preview:.source)}

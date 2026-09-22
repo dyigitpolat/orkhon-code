@@ -1,5 +1,6 @@
 #import "EditorBridge.h"
 #import "Scintilla.h"
+#import "ScintillaView.h"
 #include <cstdio>
 #include <cstdlib>
 static int passed = 0;
@@ -21,6 +22,33 @@ int main() { @autoreleasepool {
  NSWindow *window=[[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,800,600)
      styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
  window.contentView=e;
+ e.wordWrap=NO;e.text=@"short\nsecond\n";
+ for (CGFloat width : {400.0, 1000.0, 650.0}) {
+     [window setContentSize:NSMakeSize(width,600)];[e layoutSubtreeIfNeeded];
+     NSView *hit=[e hitTest:NSMakePoint(NSWidth(e.bounds)-30,NSHeight(e.bounds)-25)];
+     check([hit isKindOfClass:SCIContentView.class],"far-right blank space remains a clickable editor canvas after resize");
+ }
+ [window setContentSize:NSMakeSize(800,600)];
+ e.text=@"unchanged\n";
+ NSString *annotation=@"removed 猫\nadded 😀\n";
+ NSUInteger redBytes=[@"removed 猫\n" lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+ NSMutableData *annotationStyles=[NSMutableData dataWithLength:[annotation lengthOfBytesUsingEncoding:NSUTF8StringEncoding]];
+ memset(annotationStyles.mutableBytes,251,redBytes);
+ memset((char *)annotationStyles.mutableBytes+redBytes,250,annotationStyles.length-redBytes);
+ [e setExternalAnnotation:annotation styles:annotationStyles atLine:0];
+ NSMutableData *actualStyles=[NSMutableData dataWithLength:annotationStyles.length];
+ s(e,SCI_ANNOTATIONGETSTYLES,0,(NSInteger)actualStyles.mutableBytes);
+ check([actualStyles isEqual:annotationStyles],"Unicode additions and removals keep independent byte-aligned styles");
+ check([e.text isEqual:@"unchanged\n"] && !e.modified,"read-only change annotations never enter the document");
+ auto oldRed=s(e,SCI_STYLEGETBACK,251);
+ [e applyPalette:@{@"background":NSColor.blackColor,@"foreground":NSColor.whiteColor}];
+ check(s(e,SCI_STYLEGETBACK,250)!=s(e,SCI_STYLEGETBACK,251) && s(e,SCI_STYLEGETBACK,251)!=oldRed,"add/remove colors remain distinct after theme changes");
+ e.tabWidth=4;
+ [e setExternalAnnotation:@"\tcall(a,\tvalue)\n" atLine:0];
+ char aligned[128]={0};s(e,SCI_ANNOTATIONGETTEXT,0,(NSInteger)aligned);
+ check(strcmp(aligned,"    call(a, value)\n")==0,"annotation indentation shares source tab stops without added labels or prefixes");
+ [e clearExternalAnnotations];
+ check(s(e,SCI_ANNOTATIONGETLINES,0)==0,"clearing change history removes ghost rows");
  check([LMEditorView.availableLexers containsObject:@"cpp"], "available lexer list");
  check(s(e, SCI_GETMULTIPLESELECTION) && s(e, SCI_GETADDITIONALSELECTIONTYPING), "multiple selections enabled");
  e.text = @"hello";

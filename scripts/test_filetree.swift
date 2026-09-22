@@ -7,6 +7,7 @@ import AppKit
 import Darwin
 
 private extension FileTreePanel {
+    func testSuspendReads(_ value:Bool) {reads.isSuspended=value}
     var testOperationInProgress: Bool { operationInProgress }
     func testPerform(_ operation: FileTreeDisk.Operation, target: FileTreeTarget, name: String) {
         perform(operation, target: target, name: name)
@@ -149,6 +150,14 @@ private struct FileTreeChecks {
         wait("expansion reads children") { node("Nested") != nil }
         outline.expandItem(node("Nested")!)
         wait("nested expansion reads children") { node("deep.txt") != nil }
+        // A refresh must retain the children that NSOutlineView still references.
+        let priorRows=rows().map(\.name)
+        panel.testSuspendReads(true)
+        panel.setOpenFiles([root.appendingPathComponent("Alpha/Nested/deep.txt")],activeURL:nil,workspaceMode:false)
+        check(rows().map(\.name)==priorRows,"opening a tab preserves published rows during async refresh")
+        for i in 0..<25 {panel.setOpenFiles([root.appendingPathComponent(i.isMultiple(of:2) ? "file10.txt":"Alpha/Nested/deep.txt")],activeURL:nil,workspaceMode:false);_ = rows()}
+        panel.testSuspendReads(false)
+        wait("open-file refresh preserves nested rows") {node("deep.txt") != nil}
         let deep = node("deep.txt")!
         outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: deep)), byExtendingSelection: false)
         panel.refresh()

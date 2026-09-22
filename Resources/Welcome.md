@@ -1,4 +1,4 @@
-# Welcome to Orkhon Editor
+# Welcome to Orkhon Code
 
 A fast, focused editor for text and source code.
 
@@ -29,10 +29,10 @@ The network button beside **Open Folder** opens an SSH workspace. Use an SSH-con
 
 ## File defaults
 
-The setup screen recommends conservative source-file types. Deselect anything you want to keep in its current app, then confirm. Browser, media, design, and ambiguous formats stay protected. You can revisit the choices in **Orkhon Editor > File Defaults**.
+The setup screen recommends conservative source-file types. Deselect anything you want to keep in its current app, then confirm. Browser, media, design, and ambiguous formats stay protected. You can revisit the choices in **Orkhon Code > File Defaults**.
 
 Your files remain in their original locations. No account, telemetry, or background language server is required.
 
 ## Changes made elsewhere
 
-Clean files refresh automatically. Independent external edits merge with your unsaved work. Overlapping edits are marked in the editor; **Review changes** shows additions in green, removals in red, and choices for each conflict.
+Clean files refresh automatically. With unsaved edits, independent external changes merge automatically: added lines glow green and removed lines remain visible in red. Only overlapping changes need a decision. A compact **Conflict** toolbar sits between your current lines (red) and the incoming replacement (green). Choose **Keep current**, **Use incoming**, or **Keep both**. **Next conflict** jumps to the next unresolved span. This works for local and SSH files.

@@ -19,5 +19,5 @@ jobs:
           work/test-remote
       - uses: actions/upload-artifact@v4
         with:
-          name: Orkhon-Editor-macOS
-          path: outputs/Orkhon Editor Installer.pkg
+          name: Orkhon-Code-macOS
+          path: outputs/Orkhon Code Installer.pkg

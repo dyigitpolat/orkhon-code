@@ -16,13 +16,13 @@ extension EditorWindowController {
         func item(_ menu:NSMenu,_ title:String,_ action:Selector,_ key:String="",_ mods:NSEvent.ModifierFlags = .command,_ tag:Int=0,_ target:AnyObject?=nil) {
             let i=NSMenuItem(title:title,action:action,keyEquivalent:key);i.keyEquivalentModifierMask=mods;i.target=target ?? self;i.tag=tag;menu.addItem(i)
         }
-        let app=section("Orkhon Editor")
-        item(app,"About Orkhon Editor",#selector(about(_:)));item(app,"File Defaults…",#selector(showFileSetup(_:)));app.addItem(.separator())
+        let app=section("Orkhon Code")
+        item(app,"About Orkhon Code",#selector(about(_:)));item(app,"File Defaults…",#selector(showFileSetup(_:)));app.addItem(.separator())
         let services=NSMenuItem(title:"Services",action:nil,keyEquivalent:"");services.submenu=NSMenu();app.addItem(services);NSApp.servicesMenu=services.submenu
-        app.addItem(.separator());item(app,"Hide Orkhon Editor",#selector(NSApplication.hide(_:)),"h",.command,0,NSApp)
+        app.addItem(.separator());item(app,"Hide Orkhon Code",#selector(NSApplication.hide(_:)),"h",.command,0,NSApp)
         item(app,"Hide Others",#selector(NSApplication.hideOtherApplications(_:)),"h",[.command,.option],0,NSApp)
         item(app,"Show All",#selector(NSApplication.unhideAllApplications(_:)),"",.command,0,NSApp)
-        app.addItem(.separator());item(app,"Quit Orkhon Editor",#selector(NSApplication.terminate(_:)),"q",.command,0,NSApp)
+        app.addItem(.separator());item(app,"Quit Orkhon Code",#selector(NSApplication.terminate(_:)),"q",.command,0,NSApp)
         let file=section("File")
         item(file,"Connect over SSH…",#selector(connectRemote(_:)));item(file,"Disconnect SSH",#selector(disconnectRemote(_:)));file.addItem(.separator())
         item(file,"New Window",#selector(ApplicationCoordinator.createWindow(_:)),"n",[.command,.shift],0,coordinator);item(file,"Open in New Window…",#selector(openInNewWindow(_:)),"o",[.command,.option]);item(file,"New Tab",#selector(newDocument(_:)),"n");item(file,"Open…",#selector(openFile(_:)),"o");item(file,"Open Folder…",#selector(openFolder(_:)),"o",[.command,.shift])
@@ -54,7 +54,7 @@ extension EditorWindowController {
         item(win,"Zoom",#selector(NSWindow.performZoom(_:)));win.items.last?.target=nil
         item(win,"Move Tab to New Window",#selector(moveCurrentToNewWindow(_:)));item(win,"Next Tab",#selector(nextTab(_:)),"]",[.command,.shift]);item(win,"Previous Tab",#selector(previousTab(_:)),"[",[.command,.shift])
         item(win,"Enter Full Screen",#selector(NSWindow.toggleFullScreen(_:)),"f",[.command,.control]);win.items.last?.target=nil
-        let help=section("Help");NSApp.helpMenu=help;item(help,"Orkhon Editor Guide",#selector(self.help(_:)))
+        let help=section("Help");NSApp.helpMenu=help;item(help,"Orkhon Code Guide",#selector(self.help(_:)))
     }
 }
 extension EditorWindowController:NSMenuItemValidation {

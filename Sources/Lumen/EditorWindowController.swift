@@ -20,6 +20,9 @@ final class DocumentTab {
     var displayedDirty=false
     var baselineChanged=false,checkingExternal=false
     var externalChange:ExternalChange?
+    var externalHighlights:ExternalChange?
+    var externalReviewRequested=false
+    var externalAnchors:[ExternalAnchor]=[]
     var isModified:Bool {baselineChanged || editor.modified}
     init() { editor=LMEditorView(frame:.zero) }
     var title:String { isWelcome ? "Welcome" : (remotePath.map{($0 as NSString).lastPathComponent} ?? url?.lastPathComponent ?? "Untitled") }
@@ -53,7 +56,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
     let themePicker=NSButton()
     var themeWindow:CommandPalette?
     let languagePicker=NSButton()
-    let status=NSTextField(labelWithString:""), brand=NSTextField(labelWithString:"ORKHON")
+    let status=NSTextField(labelWithString:""), brand=BrandMark(frame:.zero)
     let pathLabel=NSTextField(labelWithString:"new document: here is a little room to think.")
     let findBar=Surface(), findInput=Surface(), replaceInput=Surface(), findField=CenteredTextField(), replaceField=CenteredTextField()
     let caseToggle=PillButton(title:"Aa",target:nil,action:nil), regexToggle=PillButton(title:".*",target:nil,action:nil), wordToggle=PillButton(title:"ab",target:nil,action:nil)
@@ -62,15 +65,21 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
     var fontSize:CGFloat { get { CGFloat(UserDefaults.standard.double(forKey:"fontSize")).clamped(to:10...28) } set { UserDefaults.standard.set(Double(newValue),forKey:"fontSize") } }
     let fileMonitor=FileChangeMonitor()
     var externalCheck:DispatchWorkItem?
-    var externalReview:ExternalChangeReview?
-    let externalBar=Surface(),externalLabel=NSTextField(labelWithString:""),externalButton=PillButton(title:"Review changes",target:nil,action:nil)
+    var remotePollTimer:Timer?
+    var remotePollInFlight=false,lastRemotePoll:TimeInterval=0
+    let externalBar=Surface(),externalLabel=NSTextField(labelWithString:""),externalButton=PillButton(title:"Next conflict",target:nil,action:nil)
     let ioQueue=DispatchQueue(label:"app.lumen.files",qos:.userInitiated)
     let recoveryQueue=DispatchQueue(label:"app.lumen.recovery",qos:.utility)
     var paletteWindow:CommandPalette?
-    var setupWindow:FirstLaunchSetup?
+    var setupWindow:NSWindowController?
     var languageWindow:CommandPalette?
     var recentFilesMenu=NSMenu(title:"Open Recent")
     var launched=false, restoring=false, pendingURLs:[URL]=[]
+    var automatedTesting:Bool {
+        ProcessInfo.processInfo.environment["ORKHON_TEST_DATA"] != nil &&
+        ProcessInfo.processInfo.environment["ORKHON_PAUSE_INLINE_TEST"] != "1" &&
+        CommandLine.arguments.contains(where:{["--self-test","--revision-tests"].contains($0)})
+    }
     var recoveryURL:URL { if let path=ProcessInfo.processInfo.environment["ORKHON_TEST_DATA"] { return URL(fileURLWithPath:path).appendingPathComponent("Recovery") }; return FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Orkhon Editor/Recovery",isDirectory:true) }
     var sessionURL:URL { recoveryURL.deletingLastPathComponent().appendingPathComponent("session.json") }
 
@@ -79,7 +88,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
         UserDefaults.standard.register(defaults:["fontSize":14.0,"tabWidth":4,"spaces":true])
         buildMenus();startupTrace("menus");buildWindow();startupTrace("window");newDocument(nil);startupTrace("editor")
         launched=true
-        window.makeKeyAndOrderFront(nil);startupTrace("ordered front");NSApp.activate(ignoringOtherApps:true);startupTrace("activated")
+        window.makeKeyAndOrderFront(nil);startupTrace("ordered front");if !automatedTesting {NSApp.activate(ignoringOtherApps:true)};startupTrace("activated")
         window.contentView?.layoutSubtreeIfNeeded(); window.displayIfNeeded();startupTrace("displayed")
         let ms=Double(DispatchTime.now().uptimeNanoseconds-lumenStart)/1_000_000
         if let path=ProcessInfo.processInfo.environment["LUMEN_BENCHMARK_FILE"] {
@@ -97,8 +106,11 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
     }
     func buildWindow() {
         window=NSWindow(contentRect:NSRect(x:0,y:0,width:1120,height:760),styleMask:[.titled,.closable,.miniaturizable,.resizable,.fullSizeContentView],backing:.buffered,defer:false)
-        window.isReleasedWhenClosed=false;window.tabbingMode = .disallowed;window.title="Orkhon Editor"; window.titleVisibility = .hidden; window.titlebarAppearsTransparent=true
-        window.minSize=NSSize(width:720,height:440); window.center(); window.setFrameAutosaveName("OrkhonEditor.MainWindow"); window.delegate=self
+        window.isReleasedWhenClosed=false;window.tabbingMode = .disallowed;window.title="Orkhon Code"; window.titleVisibility = .hidden; window.titlebarAppearsTransparent=true
+        window.minSize=NSSize(width:720,height:440); window.center()
+        if automatedTesting {window.alphaValue=0;window.ignoresMouseEvents=true}
+        else {window.setFrameAutosaveName("OrkhonEditor.MainWindow")}
+        window.delegate=self
         window.contentView=root; root.addSubview(header); root.addSubview(tabsSurface);root.addSubview(statusSurface)
         let treeVC=NSViewController();treeVC.view=treeHost
         treeItem=NSSplitViewItem(sidebarWithViewController:treeVC);treeItem.minimumThickness=210;treeItem.preferredThicknessFraction=0.22;treeItem.maximumThickness=480;treeItem.canCollapse=true;treeItem.isCollapsed=true
@@ -116,7 +128,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
         sidebar.frame.origin=NSPoint(x:10,y:6);tabsSurface.addSubview(sidebar)
         let open=iconButton("doc.badge.plus","Open File  ⌘O",target:self,action:#selector(openFile(_:)))
         open.frame.origin=NSPoint(x:46,y:6);tabsSurface.addSubview(open)
-        brand.font = .systemFont(ofSize:11,weight:.bold);brand.frame=NSRect(x:90,y:14,width:72,height:16);header.addSubview(brand)
+        brand.frame=NSRect(x:90,y:12,width:114,height:20);header.addSubview(brand)
         pathLabel.font = .systemFont(ofSize:12);pathLabel.lineBreakMode = .byTruncatingMiddle;header.addSubview(pathLabel)
         themePicker.title=theme.name;themePicker.image=NSImage(systemSymbolName:"paintpalette",accessibilityDescription:nil);themePicker.imagePosition = .imageLeading;themePicker.font = .systemFont(ofSize:12);themePicker.target=self;themePicker.action=#selector(changeTheme(_:));themePicker.isBordered=false;themePicker.toolTip="Color theme";header.addSubview(themePicker)
         let folder=iconButton("folder","Open Folder  ⇧⌘O",target:self,action:#selector(openFolder(_:)));folder.frame.origin=NSPoint(x:82,y:6);tabsSurface.addSubview(folder)
@@ -138,7 +150,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
             self.tabsSurface.frame=NSRect(x:0,y:b.height-78,width:b.width,height:42)
             self.statusSurface.frame=NSRect(x:0,y:0,width:b.width,height:27)
             self.mainSplit.view.frame=NSRect(x:0,y:27,width:b.width,height:max(100,b.height-105))
-            self.pathLabel.frame=NSRect(x:164,y:13,width:max(40,b.width-330),height:18)
+            self.pathLabel.frame=NSRect(x:220,y:13,width:max(40,b.width-386),height:18)
             self.themePicker.frame=NSRect(x:b.width-150,y:8,width:135,height:24)
             term.frame=NSRect(x:b.width-42,y:6,width:32,height:30)
             self.tabScroll.frame=NSRect(x:154,y:2,width:max(100,b.width-344),height:38);plus.frame=NSRect(x:b.width-78,y:6,width:30,height:30)
@@ -153,7 +165,9 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
         let b=editorSurface.bounds;let h:CGFloat=showFind ? 100:0
         let externalHeight:CGFloat=current?.externalChange != nil ? 38:0
         externalBar.isHidden=externalHeight==0;externalBar.frame=NSRect(x:0,y:b.height-h-externalHeight,width:b.width,height:externalHeight)
-        externalLabel.stringValue=current?.externalChange?.merge.map{"Changed outside Orkhon · \($0.conflicts.count) overlapping edits"} ?? "Changed outside Orkhon · review needed";externalLabel.frame=NSRect(x:14,y:10,width:max(120,b.width-176),height:18)
+        externalLabel.stringValue=current?.externalChange?.merge.map{_ in "\(current?.externalChange?.remainingConflicts ?? 0) unresolved conflict\((current?.externalChange?.remainingConflicts ?? 0)==1 ? "":"s")"} ?? "External changes · review needed";externalLabel.frame=NSRect(x:14,y:10,width:max(120,b.width-176),height:18)
+        externalButton.title=current?.externalChange?.merge == nil ? "Save a copy…":"Next conflict"
+        externalLabel.toolTip=current?.externalChange?.error
         externalButton.frame=NSRect(x:b.width-152,y:5,width:138,height:28)
         findBar.frame=NSRect(x:0,y:b.height-h,width:b.width,height:h);findBar.isHidden = !showFind
         editorSplit.frame=NSRect(x:0,y:0,width:b.width,height:max(0,b.height-h-externalHeight));layoutEditorPanes();firstPane.needsLayout=true;secondPane.needsLayout=true;editorSplit.layoutSubtreeIfNeeded()
@@ -239,8 +253,8 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
         d.editor.wordWrap=wrap;d.editor.showWhitespace=whitespace;d.editor.fontSize=fontSize;d.editor.send(2031,w:2,l:0)
         d.editor.tabWidth=UserDefaults.standard.integer(forKey:"tabWidth");d.editor.useTabs = !UserDefaults.standard.bool(forKey:"spaces")
         d.editor.applyPalette(theme.palette)
-        d.editor.onChange = { [weak self,weak d] in guard let self,let d,!d.loading else{return};if d.displayedDirty != d.isModified {self.rebuildTabs()};self.updateStatus();self.scheduleRecovery(d);self.pane(for:d)?.schedulePreview();if d.externalChange != nil {self.scheduleExternalCheck()} }
-        d.editor.onUpdate = { [weak self,weak d] in guard let self,let d else{return};if d.editor.send(2381,w:0,l:0) != 0 {self.focusDocument(d)};self.updateStatus() }
+        d.editor.onChange = { [weak self,weak d] in guard let self,let d,!d.loading else{return};if d.displayedDirty != d.isModified {self.rebuildTabs()};self.updateStatus();self.scheduleRecovery(d);self.pane(for:d)?.schedulePreview();if let change=d.externalChange,change.localText != d.editor.text {self.scheduleExternalCheck()} }
+        d.editor.onUpdate = { [weak self,weak d] in guard let self,let d else{return};if d.editor.send(2381,w:0,l:0) != 0 {self.focusDocument(d)};self.updateStatus();self.pane(for:d)?.externalControls?.needsLayout=true }
     }
     func selectDocument(_ index:Int) {
         guard documents.indices.contains(index) else{return}
@@ -268,7 +282,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
     func updateStatus() {
         guard let d=current else{return}
         for pane in [firstPane,secondPane] {if let doc=pane.document {pane.title.stringValue=(doc.isModified ? "●  ":"")+doc.title}}
-        window.isDocumentEdited=d.isModified;window.title="\(d.title) — Orkhon Editor";window.representedURL=d.url
+        window.isDocumentEdited=d.isModified;window.title="\(d.title) — Orkhon Code";window.representedURL=d.url
         pathLabel.stringValue=d.isWelcome ? "Welcome" : d.remotePath.map{ "\(remote?.host ?? "SSH"):\($0)" } ?? d.url?.abbreviatingWithTildeInPath ?? "new document: here is a little room to think."
         let e=d.format.map { String.localizedName(of:$0.encoding) } ?? "UTF-8"
         let ending=d.format?.lineEnding == "\r\n" ? "CRLF":(d.format?.lineEnding == "\r" ? "CR":"LF")
@@ -337,10 +351,11 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
         do {
             let same=destination.standardizedFileURL == d.url?.standardizedFileURL
             d.format=try DocumentStorage.write(text:d.editor.text,to:destination,format:d.format,expected:same ? d.format?.originalData:nil)
-            d.url=destination;d.isWelcome=false;d.remotePath=nil;d.baselineChanged=false;d.externalChange=nil;d.editor.markSaved();updateAutomaticWorkspace()
+            d.url=destination;d.isWelcome=false;d.remotePath=nil;d.baselineChanged=false;d.externalChange=nil;d.externalHighlights=nil;d.externalAnchors=[];d.editor.clearExternalAnnotations();for marker in [24,25,26] {d.editor.send(2045,w:marker,l:0)};d.editor.markSaved();pane(for:d)?.updatePreview();updateAutomaticWorkspace()
             if !d.languageOverride {d.language=LanguageRegistry.shared.language(for:destination,text:String(d.editor.text.prefix(200)));configureLanguage(d)}
             clearRecovery(d);rebuildTabs();updateStatus();persistSession();tree?.refresh();if ProcessInfo.processInfo.environment["ORKHON_TEST_DATA"] == nil {NSDocumentController.shared.noteNewRecentDocumentURL(destination)};refreshRecents();return true
-        } catch {showError(error);return false}
+        } catch DocumentStorageError.externalChange {requestExternalReview(d);return false}
+        catch {showError(error);return false}
     }
     @objc func saveAll(_ sender:Any?) {for d in documents where d.isModified {if !saveDocument(d,asNew:false){break}}}
     @objc func revert(_ sender:Any?) {
@@ -378,7 +393,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
         return true
     }
     func finishClosing() {
-        sshWindow?.cancelPendingConnection();sshWindow=nil;externalCheck?.cancel();fileMonitor.update([])
+        sshWindow?.cancelPendingConnection();sshWindow=nil;externalCheck?.cancel();fileMonitor.update([]);remotePollTimer?.invalidate();remotePollTimer=nil
         documents.forEach{clearRecovery($0)};terminal?.terminateAll()
         coordinator?.releaseConnection(for:self);recoveryQueue.sync {}
     }
@@ -454,7 +469,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
         NSPrintOperation(view:text,printInfo:info).run()
     }
     func showError(_ error:Error) {let a=NSAlert(error:error);a.runModal()}
-    @objc func about(_ sender:Any?) {NSApp.orderFrontStandardAboutPanel(options:[.applicationName:"Orkhon Editor",.applicationVersion:Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "1.3.0",.version:Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "6",.credits:NSAttributedString(string:"A small, native place for text.\n\nEditing: Scintilla · Syntax: Lexilla\nTerminal: SwiftTerm\nOpen-source licenses included in the app.")])}
+    @objc func about(_ sender:Any?) {NSApp.orderFrontStandardAboutPanel(options:[.applicationName:"Orkhon Code",.applicationVersion:Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "1.4.0",.version:Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "7",.credits:NSAttributedString(string:"A small, native place for text.\n\nEditing: Scintilla · Syntax: Lexilla\nTerminal: SwiftTerm\nOpen-source licenses included in the app.")])}
     @objc func help(_ sender:Any?) {if let url=Bundle.main.url(forResource:"User Guide",withExtension:"md"){openURL(url)}}
     @objc func quickOpen(_ sender:Any?) {openFile(sender)}
 }

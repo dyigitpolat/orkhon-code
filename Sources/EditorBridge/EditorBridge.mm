@@ -71,6 +71,7 @@ NSString *PaletteKey(NSString *tags, NSString *name, NSString *description) {
     BOOL _callbacksScheduled;
     BOOL _pendingChange;
     BOOL _pendingUpdate;
+    BOOL _hasExternalAnnotations;
     NSString *_lexerName;
     NSString *_lastSearchQuery;
     NSInteger _lastSearchFlags;
@@ -170,6 +171,66 @@ NSString *PaletteKey(NSString *tags, NSString *name, NSString *description) {
 }
 
 - (void)command:(NSInteger)message { [self send:message w:0 l:0]; }
+
+- (void)applyAnnotationPalette {
+    NSColor *background = _palette[@"background"] ?: NSColor.textBackgroundColor;
+    NSColor *foreground = _palette[@"foreground"] ?: NSColor.textColor;
+    const int styles[] = {250, 251, 252, 253};
+    NSArray<NSColor *> *tints = @[NSColor.systemGreenColor, NSColor.systemRedColor, background, NSColor.systemGreenColor];
+    const CGFloat fractions[] = {0.92, 0.92, 1.0, 0.78};
+    for (int i=0; i<4; ++i) {
+        Sci(_editor, SCI_STYLESETFORE, styles[i], Colour(foreground));
+        Sci(_editor, SCI_STYLESETBACK, styles[i], Colour([tints[i] blendedColorWithFraction:fractions[i] ofColor:background]));
+        Sci(_editor, SCI_STYLESETBOLD, styles[i], NO);
+        Sci(_editor, SCI_STYLESETITALIC, styles[i], NO);
+    }
+}
+- (void)setExternalAnnotation:(NSString *)text atLine:(NSInteger)line {
+    NSMutableData *styles = [NSMutableData dataWithLength:[text lengthOfBytesUsingEncoding:NSUTF8StringEncoding]];
+    memset(styles.mutableBytes, 250, styles.length);
+    [self setExternalAnnotation:text styles:styles atLine:line];
+}
+- (void)setExternalAnnotation:(NSString *)text styles:(NSData *)styles atLine:(NSInteger)line {
+    if (line < 0 || line >= Sci(_editor, SCI_GETLINECOUNT) || styles.length != [text lengthOfBytesUsingEncoding:NSUTF8StringEncoding]) return;
+    if (!_hasExternalAnnotations) [self applyAnnotationPalette];
+    _hasExternalAnnotations = YES;
+    // Annotation text uses the platform text renderer, which has different tab
+    // stops from the document. Expand display-only tabs using the editor's font
+    // metrics and tab width so incoming/current columns stay aligned.
+    std::string displayText;
+    std::vector<unsigned char> displayStyles;
+    const std::string spaces(1024, ' ');
+    const double spaceWidth = std::max(0.01, Sci(_editor, SCI_TEXTWIDTH, STYLE_DEFAULT, Pointer(spaces.c_str())) / 1024.0);
+    const int tabWidth = std::max<sptr_t>(1, Sci(_editor, SCI_GETTABWIDTH));
+    const char *bytes = text.UTF8String;
+    const auto *colours = static_cast<const unsigned char *>(styles.bytes);
+    size_t lineStart = 0;
+    for (size_t i=0; i<styles.length; ++i) {
+        if (bytes[i] == '\t') {
+            const std::string prefix = displayText.substr(lineStart);
+            const auto column = std::lround(Sci(_editor, SCI_TEXTWIDTH, STYLE_DEFAULT, Pointer(prefix.c_str())) / spaceWidth);
+            const size_t count = tabWidth - column % tabWidth;
+            displayText.append(count, ' '); displayStyles.insert(displayStyles.end(), count, colours[i]);
+        } else {
+            displayText.push_back(bytes[i]); displayStyles.push_back(colours[i]);
+            if (bytes[i] == '\n') lineStart = displayText.size();
+        }
+    }
+    Sci(_editor, SCI_ANNOTATIONSETTEXT, line, Pointer(displayText.c_str()));
+    Sci(_editor, SCI_ANNOTATIONSETSTYLES, line, Pointer(displayStyles.data()));
+    Sci(_editor, SCI_ANNOTATIONSETVISIBLE, ANNOTATION_STANDARD);
+}
+- (void)clearExternalAnnotations { Sci(_editor, SCI_ANNOTATIONCLEARALL); _hasExternalAnnotations = NO; }
+- (NSRect)externalAnnotationFrameAtLine:(NSInteger)line row:(NSInteger)row {
+    if (line < 0 || line >= Sci(_editor, SCI_GETLINECOUNT) || !Sci(_editor, SCI_GETLINEVISIBLE, line)) return NSZeroRect;
+    const CGFloat height = Sci(_editor, SCI_TEXTHEIGHT, line);
+    const CGFloat y = Sci(_editor, SCI_POINTYFROMPOSITION, 0, Sci(_editor, SCI_POSITIONFROMLINE, line));
+    const CGFloat wrapped = Sci(_editor, SCI_WRAPCOUNT, line);
+    NSClipView *clip = _editor.scrollView.contentView;
+    NSRect rectangle = NSMakeRect(NSMinX(clip.bounds) + 8, NSMinY(clip.bounds) + y + (wrapped + row) * height,
+                                 MAX(0, NSWidth(clip.bounds) - 16), 2 * height);
+    return [self convertRect:rectangle fromView:clip];
+}
 
 - (NSString *)text {
     const NSInteger length = Sci(_editor, SCI_GETLENGTH);
@@ -377,6 +438,7 @@ NSString *PaletteKey(NSString *tags, NSString *name, NSString *description) {
     Sci(_editor, SCI_SETELEMENTCOLOUR, SC_ELEMENT_CARET_LINE_BACK, Colour(colours[@"line"], YES));
     Sci(_editor, SCI_SETELEMENTCOLOUR, SC_ELEMENT_WHITE_SPACE, Colour(colours[@"muted"], YES));
     _editor.scrollView.backgroundColor = colours[@"background"];
+    if (_hasExternalAnnotations) [self applyAnnotationPalette];
     [self updateLineNumberWidth];
     _editor.needsDisplay = YES;
 }

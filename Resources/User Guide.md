@@ -1,4 +1,4 @@
-# Orkhon Editor
+# Orkhon Code
 
 A compact native editor for macOS 13 and later. Built for Apple Silicon.
 
@@ -38,7 +38,7 @@ Markdown is rendered natively. The welcome page uses this same viewer. Preview u
 
 The network button beside **Open Folder** connects to an SSH-config alias or `user@hostname`. Choose a profile or enter a hostname, with optional user and port. OpenSSH uses keys and its agent first; a secure native prompt requests a password or passphrase when needed and asks before trusting a new server. After connection, choose a remote folder. Passwords are not stored. The file tree browses that server, files open in normal tabs, and new terminal tabs connect to it. Existing local terminals remain local. Disconnect closes remote tabs after save/discard prompts.
 
-SSH uses the system OpenSSH client, configuration, and key agent. Servers need a POSIX shell and standard file utilities; safe remote saving also needs `sha256sum`, `shasum`, or `sha256`. Remote files are limited to 32 MB. Symbolic links are shown but not edited. Saves preserve permissions and reject changes detected on the server; close and reopen a file after a conflict, or Save As a local copy. Remote files are saved only when you request it. Remote sessions do not reconnect automatically after relaunch; unsaved recovery text is restored as a local untitled document.
+SSH uses the system OpenSSH client, configuration, and key agent. Servers need a POSIX shell and standard file utilities; safe remote saving also needs `sha256sum`, `shasum`, or `sha256`. Remote files are limited to 32 MB. Symbolic links are shown but not edited. Saves preserve permissions and open the same change review used for local files when the server changed. Open remote files are checked in one background request about every two seconds (ten seconds when their combined size exceeds 2 MB). Only changed contents are downloaded; checksums also catch edits with unchanged size and modification time. Remote files are saved only when you request it. Remote sessions do not reconnect automatically after relaunch; unsaved recovery text is restored as a local untitled document.
 
 ## Appearance and editing
 
@@ -50,7 +50,7 @@ Language detection uses filenames, extensions, and shebangs. The language select
 
 UTF-8 and BOM-marked UTF-16/UTF-32 retain their encoding and byte-order mark. Existing newlines are preserved; newly inserted lines follow the detected convention. Files with binary control data are rejected. Invalid Unicode is rejected rather than silently replacing characters. **File → Open with Encoding** provides explicit Windows-1252, ISO Latin-1, Shift JIS, and Mac Roman fallback choices for older files. The current document limit is 256 MB.
 
-Saves replace files atomically and preserve POSIX permissions. Filesystem notifications detect changes made by another app, including atomic replacements. Clean buffers update automatically. Independent disk edits merge with unsaved edits using a three-way merge based on the system diff engine. Conflicting rows are marked; **Review changes** shows external additions in green and removals in red. Resolve each conflict with **Keep mine**, **Use disk**, or **Both**, then apply the merge. You may also keep the whole working version or take the whole disk version; the change remains undoable. Saving pauses for unresolved conflicts. Automatic merge is bounded to 8 MB per input. **Save As** can preserve an independent copy. Changes are also checked before saving. Saving is optimistic: an unrelated program writing during the final replacement can still race a save.
+Saves replace files atomically and preserve POSIX permissions. Filesystem notifications detect changes made by another app, including atomic replacements. Clean buffers update automatically. When you have unsaved changes, independent external edits merge immediately. Added lines use a subtle green background; removed lines stay visible as red read-only annotations. Only overlapping edits need a decision: your current span has stronger red emphasis, and the incoming replacement appears below it in green. A bordered **Conflict** toolbar separates these versions, with flat **Keep current**, **Use incoming**, and **Keep both** actions. The source remains editable. Each action resolves one span immediately; **Next conflict** moves to the next unresolved span. Accepted change highlights remain until saving. Controls follow scrolling and divider resizing, and offscreen controls are created only when needed. Choices are undoable and do not save until you request it. Saving pauses for unresolved conflicts. Automatic merge is bounded to 8 MB per input. **Save As** can preserve an independent copy. Changes are also checked before saving. Saving is optimistic: an unrelated program writing during the final replacement can still race a save.
 
 Unsaved recovery snapshots are written about 0.8 seconds after editing to `~/Library/Application Support/Orkhon Editor/Recovery`, with private file permissions. Recovery is best effort; edits within that interval can be lost after a sudden crash or power failure. Save important changes with ⌘S. Recovery snapshots and previously open files are restored on the next launch.
 
@@ -64,7 +64,7 @@ This is a locally built and ad-hoc signed app. Developer ID signing and Apple no
 
 ## First launch and default apps
 
-Installation adds Orkhon Editor to Applications and opens its welcome page automatically. Recommended source-file groups start selected. Deselect any exceptions, then choose “Apply defaults and start editing.” Each group shows its previous app, captured before installation. “Keep all current defaults” starts editing without changing associations. Revisit the screen through Orkhon Editor → File Defaults.
+Installation adds Orkhon Code to Applications and opens its welcome page automatically. Recommended source-file groups start selected. Deselect any exceptions, then choose “Apply defaults and start editing.” Each group shows its current or recorded previous app. Markdown, C++ source, and C++ headers are eligible. macOS shares C++ source defaults with .cp, which is shown explicitly in that group. “Keep all current defaults” starts editing without changing associations. Revisit the screen through Orkhon Code → File Defaults.
 
 Only conservative source-file types are offered. Browser documents (including HTML), images and design files, media, and ambiguous extensions keep their current apps. You can still open supported text manually and use its syntax highlighting.
 

@@ -19,6 +19,16 @@ extension EditorWindowController {
             check("Source preview control always visible",!previewDeck.toolbar.isHidden)
             setPreviewMode(.split);root.layoutSubtreeIfNeeded();await pause();root.layoutSubtreeIfNeeded()
             check("Side-by-side preview exposes editor and renderer",!previewDeck.source.isHidden && !previewDeck.preview.isHidden && previewDeck.source.bounds.width>150 && previewDeck.preview.bounds.width>150)
+            check("Side-by-side opens at equal widths",abs(previewDeck.source.bounds.width-previewDeck.preview.bounds.width)<2)
+            let icons=previewDeck.toolbar.subviews.compactMap{$0 as? PreviewIconButton}
+            check("Preview uses two compact circular icon buttons",icons.count==2 && icons.allSatisfy{$0.frame.width==28 && $0.frame.height==28 && $0.image != nil})
+            for ratio:CGFloat in [0.25,0.75] {
+                previewDeck.split.setPosition((previewDeck.split.bounds.width-1)*ratio,ofDividerAt:0);root.layoutSubtreeIfNeeded();await pause(0.05)
+                check("Source follows divider at \(ratio)",abs(md.editor.frame.width-previewDeck.source.bounds.width)<1 && md.editor.frame.minX==0)
+                check("Renderer follows divider at \(ratio)",abs((activePane.markdown?.frame.width ?? -1)-previewDeck.preview.bounds.width)<1)
+            }
+            setPreviewMode(.source);setPreviewMode(.split);root.layoutSubtreeIfNeeded()
+            check("Reopening side-by-side resets to half",abs(previewDeck.source.bounds.width-previewDeck.preview.bounds.width)<2)
             openURL(two);await wait{self.current?.loading==false};let swift=current!
             await pause(0.4)
             check("Automatic tree common parent",workspaceURL?.path==fixture.path)
@@ -49,13 +59,43 @@ extension EditorWindowController {
             try "# Their heading\n\nUpdated externally.\n".write(to:one,atomically:true,encoding:.utf8)
             await wait{md.externalChange != nil}
             check("Conflicting disk write preserves local text",md.editor.text.contains("My heading") && md.externalChange?.merge?.conflicts.count==1)
-            check("Conflicting row is highlighted",md.editor.send(2046,w:0,l:0) & (1<<26) != 0)
-            if let change=md.externalChange,let resolved=change.merge?.resolved([0:1]) {acceptExternalChange(md,text:resolved,change:change)}
+            check("Conflicting row is highlighted",md.editor.send(2046,w:0,l:0) & (1<<25) != 0)
+            if ProcessInfo.processInfo.environment["ORKHON_PAUSE_INLINE_TEST"]=="1" {bringToFront();md.editor.go(toLine:1);root.layoutSubtreeIfNeeded();return}
+            check("Conflict controls stay inside source",activePane.externalControls != nil && !md.editor.isHidden)
+            func descendants(_ view:NSView)->[NSView] {[view]+view.subviews.flatMap{descendants($0)}}
+            root.layoutSubtreeIfNeeded();await pause()
+            if let controls=activePane.externalControls {
+                let choose=descendants(controls).compactMap{$0 as? NSButton}.first{$0.title=="Use incoming"}
+                check("Conflict has inline external choice",choose != nil);choose?.performClick(nil)
+            }
             check("Per-conflict disk resolution",md.editor.text.hasPrefix("# Their heading") && md.externalChange==nil)
             md.editor.send(2160,w:0,l:-1);md.editor.insertRecoveredText("# Their heading\n\nMy paragraph.\n")
             try "# New disk title\n\nUpdated externally.\n".write(to:one,atomically:true,encoding:.utf8)
             await wait{md.editor.text.contains("New disk title")}
-            check("Independent external edits merge without discarding unsaved changes",md.editor.text.contains("New disk title") && md.editor.text.contains("My paragraph") && md.isModified)
+            check("Independent external edits merge without conflict controls",md.externalChange==nil && md.externalHighlights != nil && md.externalAnchors.isEmpty)
+            check("Accepted added lines stay highlighted",md.editor.send(2046,w:0,l:0) & (1<<24) != 0)
+            check("Removed lines stay visible as annotations",md.editor.send(2546,w:0,l:0)>0)
+            check("Applying independent edits preserves unsaved work",md.editor.text.contains("New disk title") && md.editor.text.contains("My paragraph") && md.isModified)
+            let inlineFile=fixture.appendingPathComponent("inline.swift")
+            var lines=(0..<200).map{"let line\($0) = \($0)"}
+            try (lines.joined(separator:"\n")+"\n").write(to:inlineFile,atomically:true,encoding:.utf8)
+            openURL(inlineFile);await wait{current?.loading==false};let inlineDoc=current!
+            lines[4]="let mine = 4";lines[99]="let mineMiddle = 99";inlineDoc.editor.send(2160,w:0,l:-1);inlineDoc.editor.insertRecoveredText(lines.joined(separator:"\n")+"\n")
+            lines[4]="let server = 4\nlet extra = 5";lines[99]="let serverMiddle = 99";lines[159]="let serverLast = 159"
+            try (lines.joined(separator:"\n")+"\n").write(to:inlineFile,atomically:true,encoding:.utf8)
+            await wait{inlineDoc.externalChange != nil}
+            if let change=inlineDoc.externalChange {
+                chooseExternalHunk(inlineDoc,index:0,value:1,changeID:change.id);await pause(0.4)
+                check("Inline decision immediately updates only its span",inlineDoc.editor.text.contains("let extra = 5") && inlineDoc.editor.text.contains("serverLast") && inlineDoc.externalChange?.remainingCount==1)
+                check("Partial decision survives watcher notifications",inlineDoc.externalChange?.id==change.id)
+                inlineDoc.editor.go(toLine:101);root.layoutSubtreeIfNeeded();await pause(0.3);root.layoutSubtreeIfNeeded()
+                let visibleButtons=activePane.externalControls.map{descendants($0).compactMap{$0 as? NSButton}} ?? []
+                check("Inline controls follow scrolling and changed line offsets",visibleButtons.contains{$0.title=="Keep current"})
+                chooseExternalHunk(inlineDoc,index:1,value:0,changeID:change.id)
+                check("Final inline decision preserves an ignored external change",inlineDoc.externalChange==nil && inlineDoc.editor.text.contains("let mineMiddle = 99") && inlineDoc.editor.text.contains("serverLast") && inlineDoc.isModified)
+                inlineDoc.editor.command(2176)
+                check("Undo reverses inline external replacement",inlineDoc.editor.text.contains("let mine = 4") && !inlineDoc.editor.text.contains("let extra = 5"))
+            } else {check("Inline multi-span fixture detected external change",false)}
             let merge=try ExternalMerge.compare(base:"a\nb\nc\n",mine:"a\nlocal\nc\n",disk:"a\nremote\nc\n")
             check("Three-way parser keeps base markers out of resolved text",merge.resolved([0:0])=="a\nlocal\nc\n" && merge.resolved([0:1])=="a\nremote\nc\n")
             let noNewline=try ExternalMerge.compare(base:"a",mine:"b",disk:"c")
@@ -70,7 +110,47 @@ extension EditorWindowController {
             let local=try RemoteWorkspace(host:"local-test",directory:fixture.path,localTest:true,port:2222)
             try local.connect(askpass:fixture)
             let canonical=URL(fileURLWithPath:try local.canonicalDirectory(fixture.path)).resolvingSymlinksInPath()
-            check("SSH connects before selecting remote folder",canonical==fixture.resolvingSymlinksInPath());local.disconnect()
+            check("SSH connects before selecting remote folder",canonical==fixture.resolvingSymlinksInPath())
+            other.remote=local
+            let remoteFile=fixture.appendingPathComponent("remote.md")
+            try "one\ntwo\nthree\n".write(to:remoteFile,atomically:true,encoding:.utf8)
+            other.openRemoteFile(remoteFile.path);await wait{other.current?.loading==false};let remoteDoc=other.current!
+            check("Remote document starts automatic monitoring",other.remotePollTimer != nil)
+            try "disk\ntwo\nthree\n".write(to:remoteFile,atomically:true,encoding:.utf8)
+            await wait{remoteDoc.editor.text.hasPrefix("disk")}
+            check("Remote polling updates clean buffer automatically",remoteDoc.editor.text.hasPrefix("disk") && !remoteDoc.isModified)
+            remoteDoc.editor.send(2160,w:0,l:-1);remoteDoc.editor.insertRecoveredText("my edit\ntwo\nthree\n")
+            try "their edit\ntwo\nthree\n".write(to:remoteFile,atomically:true,encoding:.utf8)
+            await wait{remoteDoc.externalChange != nil}
+            check("Remote polling opens full conflict review",remoteDoc.editor.text.hasPrefix("my edit") && remoteDoc.externalChange?.merge?.conflicts.count==1 && !remoteDoc.editor.isHidden && other.activePane.externalControls != nil)
+            if let change=remoteDoc.externalChange {other.chooseExternalHunk(remoteDoc,index:0,value:0,changeID:change.id)}
+            check("Remote resolution adopts new disk baseline",remoteDoc.format?.text.hasPrefix("their edit")==true && remoteDoc.isModified)
+            check("Remote resolved save succeeds",other.saveDocument(remoteDoc,asNew:false))
+            check("Remote saved bytes match chosen version",try String(contentsOf:remoteFile,encoding:.utf8)=="my edit\ntwo\nthree\n")
+            remoteDoc.editor.send(2160,w:0,l:-1);remoteDoc.editor.insertRecoveredText("new local\ntwo\nthree\n")
+            other.remotePollTimer?.invalidate();other.remotePollTimer=nil;await wait{!other.remotePollInFlight}
+            try "new server\ntwo\nthree\n".write(to:remoteFile,atomically:true,encoding:.utf8)
+            check("Remote save rejects concurrent external write",!other.saveDocument(remoteDoc,asNew:false))
+            await wait{remoteDoc.externalChange != nil}
+            check("Save conflict opens resolution instead of warning",other.activePane.externalControls != nil && remoteDoc.externalChange?.merge?.conflicts.count==1)
+            let stale=remoteDoc.externalChange!
+            try "latest server\ntwo\nthree\n".write(to:remoteFile,atomically:true,encoding:.utf8);other.checkRemoteChanges(force:true)
+            await wait{remoteDoc.externalChange?.id != stale.id}
+            other.acceptExternalChange(remoteDoc,text:stale.file.text,change:stale)
+            check("Stale review cannot replace a newer external change",remoteDoc.editor.text.hasPrefix("new local") && remoteDoc.externalChange?.file.text.hasPrefix("latest server")==true)
+            try remoteDoc.format!.originalData.write(to:remoteFile);other.checkRemoteChanges(force:true)
+            await wait{remoteDoc.externalChange==nil}
+            check("Server reverting to baseline clears obsolete review",remoteDoc.externalChange==nil && remoteDoc.editor.text.hasPrefix("new local"))
+            other.remotePollTimer?.invalidate();other.remotePollTimer=nil;other.remote=nil;local.disconnect()
+            if let path=ProcessInfo.processInfo.environment["ORKHON_MARKDOWN_FIXTURE"] {
+                let sample=fixture.appendingPathComponent("a/deep/ARCHITECTURE.md")
+                try FileManager.default.copyItem(at:URL(fileURLWithPath:path),to:sample)
+                manualWorkspace=false;openURL(sample);await wait{self.current?.loading==false}
+                setPreviewMode(.preview);root.layoutSubtreeIfNeeded();await pause(0.3)
+                check("Reported Markdown document opens and renders",current?.editor.text.isEmpty==false && activePane.markdown != nil)
+                for index in 0..<20 {selectDocument(index.isMultiple(of:2) ? documents.firstIndex{$0===md}!:documents.count-1);await pause(0.01)}
+                check("Repeated Markdown tab switching survives tree refresh",documents.contains{$0.url==sample})
+            }
             var fireCount=0
             let scheduler=PreviewRefresh(idle:0.08,maxDelay:0.2)
             for _ in 0..<7 {scheduler.schedule{fireCount+=1};await pause(0.04)}

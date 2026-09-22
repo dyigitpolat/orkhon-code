@@ -13,7 +13,14 @@ def compile_one(args):
   p=subprocess.run(cmd,capture_output=True,text=True)
   if p.returncode: raise RuntimeError(p.stderr)
  return str(obj)
+libraries_changed=False
 for name,sources in groups.items():
  print(f'Building {name}: {len(sources)} translation units',flush=True)
  with concurrent.futures.ThreadPoolExecutor(max_workers=min(8,os.cpu_count() or 4)) as pool: objects=list(pool.map(compile_one,[(name,s) for s in sources]))
- subprocess.run(['libtool','-static','-o',str(out/f'lib{name}.a')]+objects,check=True)
+ archive=out/f'lib{name}.a'
+ if not archive.exists() or any(Path(obj).stat().st_mtime>archive.stat().st_mtime for obj in objects):
+  subprocess.run(['libtool','-static','-o',str(archive)]+objects,check=True)
+  libraries_changed=True
+# SwiftPM cannot track external archives supplied through linker flags. Invalidate
+# the adapter when a native archive changes so incremental builds always relink.
+if libraries_changed:(root/'Sources/EditorBridge/EditorBridge.mm').touch()

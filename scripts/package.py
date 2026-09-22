@@ -4,21 +4,22 @@ import json,plistlib,shutil,subprocess,os,tempfile,sys
 root=Path(__file__).resolve().parent.parent
 preview='--preview' in sys.argv
 stage=Path(tempfile.mkdtemp(prefix='orkhon-review-' if preview else 'orkhon-package-'))
-app=stage/'Orkhon Editor.app';contents=app/'Contents';resources=contents/'Resources';macos=contents/'MacOS'
+app=stage/'Orkhon Code.app';contents=app/'Contents';resources=contents/'Resources';macos=contents/'MacOS'
 resources.mkdir(parents=True,exist_ok=True);macos.mkdir(exist_ok=True)
-shutil.copy2(root/'.build/release/Lumen',macos/'Orkhon Editor')
+shutil.copy2(root/'.build/release/Lumen',macos/'Orkhon Code')
 for name in ['languages.json','supported-extensions.json']:
  shutil.copy2(root/'Resources'/name,resources/name)
 for p in (root/'Resources').glob('*.md'):shutil.copy2(p,resources/p.name)
 # Broad syntax detection never claims ownership of file types. System text types
 # carry an icon but rank None so registration alone cannot become a default.
-info={'CFBundleName':'Orkhon Editor','CFBundleDisplayName':'Orkhon Editor','CFBundleExecutable':'Orkhon Editor','CFBundleIdentifier':'app.orkhon.editor.review' if preview else 'app.orkhon.editor','CFBundleVersion':'6','CFBundleShortVersionString':'1.3.0','CFBundlePackageType':'APPL','CFBundleIconFile':'AppIcon','NSHighResolutionCapable':True,'NSSupportsAutomaticGraphicsSwitching':True,'LSMinimumSystemVersion':'13.0','NSPrincipalClass':'NSApplication','NSHumanReadableCopyright':'Orkhon Editor · Open-source component licenses in Resources.'}
+info={'CFBundleName':'Orkhon Code','CFBundleDisplayName':'Orkhon Code','CFBundleExecutable':'Orkhon Code','CFBundleIdentifier':'app.orkhon.editor.review' if preview else 'app.orkhon.editor','CFBundleVersion':'7','CFBundleShortVersionString':'1.4.0','CFBundlePackageType':'APPL','CFBundleIconFile':'AppIcon','NSHighResolutionCapable':True,'NSSupportsAutomaticGraphicsSwitching':True,'LSMinimumSystemVersion':'13.0','NSPrincipalClass':'NSApplication','NSHumanReadableCopyright':'Orkhon Code · Open-source component licenses in Resources.'}
 if not preview:
  helper=stage/'document-types'
  subprocess.run(['swiftc','-O','-module-cache-path',str(root/'work/module-cache'),str(root/'Sources/Lumen/AssociationPolicy.swift'),str(root/'scripts/document_types.swift'),'-o',str(helper)],check=True)
  source_types=json.loads(subprocess.check_output([str(helper)]))
  if not source_types:raise RuntimeError('macOS file-type services returned no source types. Run packaging with access to the logged-in user session; refusing to ship an empty setup list.')
  info['CFBundleDocumentTypes']=[{'CFBundleTypeName':'Text and Source Code','CFBundleTypeRole':'Editor','LSHandlerRank':'None','CFBundleTypeIconFile':'DocumentIcon.icns','LSItemContentTypes':source_types+['public.text','public.source-code']}]
+info['UTImportedTypeDeclarations']=[{'UTTypeIdentifier':'net.daringfireball.markdown','UTTypeDescription':'Markdown document','UTTypeConformsTo':['public.plain-text'],'UTTypeTagSpecification':{'public.filename-extension':['md'],'public.mime-type':'text/markdown'}}]
 info['NSAppTransportSecurity']={'NSAllowsArbitraryLoadsInWebContent':True}
 helper_app=contents/'Helpers/Orkhon SSH Authentication.app'
 helper_contents=helper_app/'Contents';helper_binary=helper_contents/'MacOS/OrkhonSSHAskpass'

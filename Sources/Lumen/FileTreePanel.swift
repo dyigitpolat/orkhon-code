@@ -73,6 +73,7 @@ final class FileTreePanel: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
     private var root: FileTreeNode?
     private var nodes: [String: FileTreeNode] = [:]
     private let emptyNode = FileTreeNode(message: "Open a folder to get started")
+    private let emptyLabel = NSTextField(wrappingLabelWithString: "Open a folder to get started")
     private var generation = UUID()
     private var expandedPaths = Set<String>()
     private var pendingSelection: String?
@@ -120,6 +121,7 @@ final class FileTreePanel: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
         scrollView.backgroundColor = background
         outline.backgroundColor = background
         titleLabel.textColor = foreground
+        emptyLabel.textColor = foreground.withAlphaComponent(0.6)
         folderButton.contentTintColor = foreground
         refreshButton.contentTintColor = foreground
         hiddenButton.contentTintColor = showsHiddenFiles ? accent : foreground
@@ -187,7 +189,10 @@ final class FileTreePanel: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        for view in [header, separator, scrollView] {
+        emptyLabel.font = .systemFont(ofSize:12)
+        emptyLabel.alignment = .center
+        scrollView.isHidden = true
+        for view in [header, separator, scrollView, emptyLabel] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -204,6 +209,11 @@ final class FileTreePanel: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: separator.bottomAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        NSLayoutConstraint.activate([
+            emptyLabel.centerXAnchor.constraint(equalTo: scrollView.centerXAnchor),
+            emptyLabel.centerYAnchor.constraint(equalTo: scrollView.centerYAnchor),
+            emptyLabel.widthAnchor.constraint(equalTo: scrollView.widthAnchor, multiplier:0.84)
         ])
         applyTheme(background: .controlBackgroundColor, foreground: .labelColor, accent: .controlAccentColor)
         outline.reloadData()
@@ -238,6 +248,9 @@ final class FileTreePanel: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
         reportedReadError = false
         nodes.removeAll()
         root = url.map { FileTreeNode(url: $0, kind: .folder, identity: nil) }
+        scrollView.isHidden = url == nil
+        emptyLabel.isHidden = url != nil
+        emptyLabel.stringValue = url == nil ? "Open a folder to get started":""
         if let root, let path = root.url?.path { nodes[path] = root }
         titleLabel.stringValue = url.map { $0.lastPathComponent.isEmpty ? $0.path : $0.lastPathComponent } ?? "Workspace"
         titleLabel.toolTip = url?.path
@@ -259,8 +272,9 @@ final class FileTreePanel: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
         let rootIdentity = root?.identity
         node.state = .loading
         node.request = token
-        node.children = [FileTreeNode(message: "Loading…", parent: node)]
-        // No reload here: this can be called during NSOutlineView's expansion callback.
+        // Keep the published child snapshot until reloadItem updates AppKit's row
+        // cache. Replacing a loaded list with one loading row here invalidated the
+        // indices NSOutlineView was still reading when opening another document.
         let job = BlockOperation()
         job.addExecutionBlock { [weak self, weak job] in
             guard let job, !job.isCancelled else { return }
@@ -330,7 +344,9 @@ final class FileTreePanel: NSView, NSOutlineViewDataSource, NSOutlineViewDelegat
     }
 
     func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-        (item as? FileTreeNode ?? root)?.children[index] ?? emptyNode
+        guard let children=(item as? FileTreeNode ?? root)?.children,
+              children.indices.contains(index) else {return emptyNode}
+        return children[index]
     }
 
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {

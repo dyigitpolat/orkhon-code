@@ -5,7 +5,7 @@ extension EditorWindowController {
     func recordStartupTestIfRequested() {
         guard let path=ProcessInfo.processInfo.environment["ORKHON_STARTUP_TEST_RESULT"] else{return}
         DispatchQueue.main.asyncAfter(deadline:.now()+0.3) {
-            let result:[String:Any]=["welcomeSelected":self.current?.isWelcome==true,"markdownPreview":self.current?.previewingMarkdown==true,"setupVisible":self.window.attachedSheet != nil,"restoredFileCount":self.documents.filter{$0.url != nil}.count,"tabs":self.documents.map{$0.title}]
+            let result:[String:Any]=["welcomeSelected":self.current?.isWelcome==true,"markdownPreview":self.current?.previewingMarkdown==true,"setupVisible":self.window.attachedSheet != nil,"restoredFileCount":self.documents.filter{$0.url != nil}.count,"tabs":self.documents.map{$0.title},"fileGroups":FileAssociations.choices().map{["extensions":$0.extensions,"eligible":$0.eligible,"previous":$0.previous ?? ""] as [String:Any]}]
             if let data=try? JSONSerialization.data(withJSONObject:result,options:[.prettyPrinted,.sortedKeys]) {try? data.write(to:URL(fileURLWithPath:path))}
             if let sheet=self.window.attachedSheet {self.window.endSheet(sheet);sheet.orderOut(nil)}
             NSApp.terminate(nil)

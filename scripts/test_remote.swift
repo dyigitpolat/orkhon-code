@@ -18,10 +18,18 @@ import Foundation
     check("Directories sorted first",entries.first?.directory==true)
     check("Symlinks identified without traversal",entries.first{$0.name=="link"}?.symbolicLink==true)
     check("Byte-exact remote read",try workspace.read(unusual.path)==original)
+    let hashes=try workspace.checksums([unusual.path,root.appendingPathComponent("link").path,root.appendingPathComponent("absent").path])
+    check("Batch checksum preserves unusual paths",hashes[unusual.path]==RemoteWorkspace.checksum(original))
+    check("Checksum rejects links and missing files",hashes[root.appendingPathComponent("link").path]=="missing" && hashes[root.appendingPathComponent("absent").path]=="missing")
+    let modified=(try FileManager.default.attributesOfItem(atPath:unusual.path))[.modificationDate]!
+    let sameSize=Data("title = \"ø\"\n".utf8)
+    try sameSize.write(to:unusual);try FileManager.default.setAttributes([.modificationDate:modified],ofItemAtPath:unusual.path)
+    check("Checksum detects same-size edit with unchanged mtime",try workspace.checksums([unusual.path])[unusual.path] != hashes[unusual.path])
+    try original.write(to:unusual)
     try workspace.write(unusual.path,data:updated,expected:original)
     check("Byte-exact atomic save",try Data(contentsOf:unusual)==updated)
     check("Permissions retained",(try FileManager.default.attributesOfItem(atPath:unusual.path)[.posixPermissions] as? NSNumber)?.intValue==0o640)
-    do {try workspace.write(unusual.path,data:original,expected:original);check("Reject stale snapshot",false)} catch {check("Reject stale snapshot",error.localizedDescription.contains("Conflict"))}
+    do {try workspace.write(unusual.path,data:original,expected:original);check("Reject stale snapshot",false)} catch {check("Reject stale snapshot",error.localizedDescription.contains("Conflict") && (error as? RemoteFailure)?.exitStatus==73)}
     check("Conflicting save keeps server data",try Data(contentsOf:unusual)==updated)
     do {_ = try workspace.read(root.appendingPathComponent("link").path);check("Reject symlink editing",false)} catch {check("Reject symlink editing",true)}
     try workspace.create(root.appendingPathComponent("new.txt").path,directory:false)

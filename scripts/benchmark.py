@@ -2,7 +2,7 @@
 import subprocess,os,time,json,statistics,sys,tempfile
 from pathlib import Path
 root=Path(__file__).resolve().parent.parent
-binary=Path(sys.argv[1]) if len(sys.argv)>1 else Path((root/'work/staged-app-path.txt').read_text().strip())/'Contents/MacOS/Orkhon Editor'
+binary=Path(sys.argv[1]) if len(sys.argv)>1 else Path((root/'work/staged-app-path.txt').read_text().strip())/'Contents/MacOS/Orkhon Code'
 rows=[]
 for i in range(12):
  marker=root/f'work/launch-{i}.txt'

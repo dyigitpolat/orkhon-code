@@ -22,6 +22,7 @@ final class DocumentTabButton:NSButton,NSDraggingSource {
 
 extension EditorWindowController {
     func bringToFront() {
+        if automatedTesting {window.makeKeyAndOrderFront(nil);return}
         if window.isMiniaturized {window.deminiaturize(nil)}
         NSApp.activate(ignoringOtherApps:true)
         window.makeKeyAndOrderFront(nil)

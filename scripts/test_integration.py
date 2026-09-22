@@ -12,7 +12,7 @@ import threading
 
 root = Path(__file__).resolve().parent.parent
 app = Path(sys.argv[1]) if len(sys.argv) > 1 else Path((root / 'work/staged-app-path.txt').read_text().strip())
-binary = app / 'Contents/MacOS/Orkhon Editor'
+binary = app / 'Contents/MacOS/Orkhon Code'
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass

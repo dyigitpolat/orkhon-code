@@ -276,7 +276,7 @@ final class TerminalPanel: NSView, @preconcurrency LocalProcessTerminalViewDeleg
         var environment = ProcessInfo.processInfo.environment
         environment["TERM"] = "xterm-256color"
         environment["COLORTERM"] = "truecolor"
-        environment["TERM_PROGRAM"] = "Orkhon Editor"
+        environment["TERM_PROGRAM"] = "Orkhon Code"
         environment["SHELL"] = "/bin/zsh"
         environment["PWD"] = directory.path
         environment["HOME"] = environment["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path

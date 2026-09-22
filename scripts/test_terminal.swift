@@ -152,8 +152,8 @@ private struct TerminalPanelTests {
         try wait("real TTY and xterm-256color environment") {
             text(in: first).contains("CHECK_TERM=xterm-256color") && text(in: first).contains("CHECK_TTY=/dev/")
         }
-        try wait("terminal identifies the app as Orkhon Editor") {
-            text(in: first).contains("CHECK_APP=Orkhon Editor")
+        try wait("terminal identifies the app as Orkhon Code") {
+            text(in: first).contains("CHECK_APP=Orkhon Code")
         }
         panel.ensureSession()
         try check(terminals(in: panel).count == 1, "ensureSession does not duplicate a live tab")
