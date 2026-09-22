@@ -230,6 +230,9 @@ final class TerminalPanel: NSView, @preconcurrency LocalProcessTerminalViewDeleg
         let size = content.bounds.width >= 40 && content.bounds.height >= 30
             ? content.bounds.size : NSSize(width: 720, height: 320)
         let terminal = LocalProcessTerminalView(frame: NSRect(origin: .zero, size: size))
+        // Preserve symbols and composed text produced by macOS keyboard layouts.
+        // SwiftTerm's Meta default sends ESC + the unmodified physical key instead.
+        terminal.optionAsMetaKey = false
         terminal.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         terminal.processDelegate = self
         terminal.setAccessibilityLabel("Terminal \(nextID)")

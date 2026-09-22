@@ -26,6 +26,10 @@ A compact native editor for macOS 13 and later. Built for Apple Silicon.
 
 No shell starts until the terminal is opened. No project scripts execute automatically.
 
+Option-based symbols use your macOS keyboard layout, including brackets, angle brackets and accented characters. To send a Meta shortcut, press Escape followed by its key.
+
+The bundled SwiftTerm version supports application-requested mouse clicks and drags, but does not forward scroll-wheel events to terminal applications. This affects scrolling inside tools such as Claude Code and tmux. Use the application's keyboard scrolling controls for now; ordinary terminal scrollback still works. This is a [known upstream limitation](https://github.com/migueldeicaza/SwiftTerm/issues/517), addressed by newer SwiftTerm releases that have not yet been adopted here.
+
 Right-click a document tab for **Pin**, **Close Tab**, **Close Others**, or **Close to the Right**. Group closing preserves pinned tabs and asks about unsaved changes. Overflow arrows and the open-tabs list help navigate a long tab strip; selecting or opening a tab scrolls it into view.
 
 ## Previews, split editing and SSH
