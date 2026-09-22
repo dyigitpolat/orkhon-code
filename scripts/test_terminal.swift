@@ -138,7 +138,7 @@ private struct TerminalPanelTests {
             try check(capture.bytes == Array(text.utf8),
                       "layout text \(text) reaches the terminal as UTF-8, without a Meta prefix (got \(capture.bytes))")
         }
-        // Composed text and paste still use the input-method path.
+        // Composed text still uses the input-method path.
         capture.bytes.removeAll()
         terminal.insertText("é", replacementRange: NSRange(location: NSNotFound, length: 0))
         try check(capture.bytes == Array("é".utf8), "composed Unicode text is preserved")
@@ -153,6 +153,164 @@ private struct TerminalPanelTests {
             terminal.keyDown(with: event)
         }
         try check(capture.bytes == [27, 98], "Escape followed by a key still sends a Meta shortcut")
+    }
+
+    private static func wheel(_ delta: Int32, precise: Bool = false,
+                              flags: CGEventFlags = []) throws -> NSEvent {
+        let event = try require(CGEvent(scrollWheelEvent2Source: nil, units: precise ? .pixel : .line,
+            wheelCount: 1, wheel1: delta, wheel2: 0, wheel3: 0), "construct wheel event")
+        event.flags = flags
+        return try require(NSEvent(cgEvent: event), "construct native wheel event")
+    }
+
+    private static func checkWheelInput(_ terminal: LocalProcessTerminalView) throws {
+        let original = terminal.terminalDelegate
+        let capture = InputCapture()
+        terminal.terminalDelegate = capture
+        defer {
+            terminal.feed(text: "\u{1b}[?1000l\u{1b}[?1006l")
+            terminal.allowMouseReporting = true
+            terminal.terminalDelegate = original
+        }
+        func reports() throws -> [[Int]] {
+            try String(decoding: capture.bytes, as: UTF8.self).split(separator: "\u{1b}").map { packet in
+                guard packet.hasPrefix("[<"), packet.last == "M" else {
+                    throw CheckFailure(description: "invalid SGR wheel packet: \(packet)")
+                }
+                let values = packet.dropFirst(2).dropLast().split(separator: ";").compactMap { Int($0) }
+                guard values.count == 3 else { throw CheckFailure(description: "invalid SGR coordinates") }
+                return values
+            }
+        }
+        let up = try wheel(1), down = try wheel(-1)
+        terminal.feed(text: "\u{1b}[?1000h\u{1b}[?1006h")
+        terminal.scrollWheel(with: up)
+        var packets = try reports()
+        try check(packets.count == 1 && packets[0][0] == 64, "wheel-up reaches mouse-aware applications")
+        try check(packets[0][1] >= 1 && packets[0][1] <= terminal.getTerminal().cols &&
+                  packets[0][2] >= 1 && packets[0][2] <= terminal.getTerminal().rows,
+                  "wheel coordinates stay inside the visible terminal")
+        capture.bytes.removeAll()
+        terminal.scrollWheel(with: down)
+        packets = try reports()
+        try check(packets.count == 1 && packets[0][0] == 65, "wheel-down reaches mouse-aware applications")
+        capture.bytes.removeAll()
+        terminal.scrollWheel(with: try wheel(3))
+        packets = try reports()
+        try check(packets.count == 3, "multi-line wheel motion emits the requested number of steps")
+        capture.bytes.removeAll()
+        terminal.scrollWheel(with: try wheel(1, flags: [.maskAlternate, .maskControl]))
+        packets = try reports()
+        try check(packets.count == 1 && packets[0][0] == 88, "mouse modifiers are preserved (got \(packets))")
+        capture.bytes.removeAll()
+        // AppKit converts Shift+wheel into horizontal motion before delivery.
+        terminal.scrollWheel(with: try wheel(1, flags: [.maskShift]))
+        try check(capture.bytes.isEmpty, "horizontal scrolling does not create a spurious vertical step")
+        capture.bytes.removeAll()
+        terminal.scrollWheel(with: try wheel(0))
+        try check(capture.bytes.isEmpty, "zero wheel motion emits no input")
+
+        // Motion after scrolling back still uses viewport rows, not history rows.
+        terminal.feed(text: String(repeating: "history fixture\r\n", count: 150))
+        terminal.scrollUp(lines: 40)
+        terminal.scrollWheel(with: up)
+        packets = try reports()
+        try check(packets.count == 1 && packets[0][2] <= terminal.getTerminal().rows,
+                  "scrollback offsets do not leak into application mouse coordinates")
+        terminal.scroll(toPosition: 1)
+
+        let pixel = try wheel(1, precise: true)
+        try check(pixel.hasPreciseScrollingDeltas && pixel.scrollingDeltaY == 1,
+                  "test trackpad events use pixel deltas")
+        terminal.feed(text: "\u{1b}[?1000l\u{1b}[?1000h")
+        capture.bytes.removeAll()
+        terminal.scrollWheel(with: pixel)
+        try check(capture.bytes.isEmpty, "sub-line trackpad motion does not over-scroll")
+        for _ in 0..<100 { terminal.scrollWheel(with: pixel) }
+        packets = try reports()
+        try check(!packets.isEmpty && packets.count < 20 && packets.allSatisfy { $0[0] == 64 },
+                  "trackpad pixels accumulate into bounded whole-line steps")
+        terminal.feed(text: "\u{1b}[?1000l\u{1b}[?1000h")
+        capture.bytes.removeAll()
+        terminal.scrollWheel(with: pixel)
+        terminal.scrollWheel(with: try wheel(-1, precise: true))
+        try check(capture.bytes.isEmpty, "opposite sub-line deltas cancel without a phantom step")
+        terminal.feed(text: "\u{1b}[?1000l\u{1b}[?1000h")
+        capture.bytes.removeAll()
+        terminal.scrollWheel(with: pixel)
+        try check(capture.bytes.isEmpty, "changing mouse mode clears fractional trackpad motion")
+
+        terminal.allowMouseReporting = false
+        capture.bytes.removeAll()
+        terminal.scrollWheel(with: up)
+        try check(capture.bytes.isEmpty, "disabled mouse reporting does not send input to the shell")
+        terminal.allowMouseReporting = true
+        terminal.feed(text: "\u{1b}[?1000l")
+        capture.bytes.removeAll()
+        terminal.scrollWheel(with: up)
+        try check(capture.bytes.isEmpty, "normal scrollback does not synthesize keys or mouse input")
+
+        for mode in [9, 1000, 1002, 1003] {
+            terminal.feed(text: "\u{1b}[?\(mode)h")
+            capture.bytes.removeAll()
+            terminal.scrollWheel(with: down)
+            packets = try reports()
+            try check(packets.count == 1 && packets[0][0] == 65, "wheel delivery works in mouse mode \(mode)")
+            terminal.feed(text: "\u{1b}[?\(mode)l")
+        }
+        // Select the encoding before enabling tracking (the pinned release's
+        // extended-protocol reset also turns tracking off).
+        terminal.feed(text: "\u{1b}[?1006l\u{1b}[?1000h")
+        capture.bytes.removeAll()
+        terminal.scrollWheel(with: up)
+        try check(capture.bytes.count == 6 && capture.bytes.prefix(4) == [27, 91, 77, 96],
+                  "legacy X10 wire encoding works (got \(capture.bytes))")
+        capture.bytes.removeAll()
+        terminal.getTerminal().sendEvent(buttonFlags: 64, x: 1000, y: 1000)
+        try check(capture.bytes == [27, 91, 77, 96, 255, 255],
+                  "large legacy mouse coordinates clamp without a conversion crash")
+        terminal.feed(text: "\u{1b}[?1006h")
+        capture.bytes.removeAll()
+        let burst = try wheel(3)
+        let start = ProcessInfo.processInfo.systemUptime
+        for _ in 0..<1000 { terminal.scrollWheel(with: burst) }
+        let elapsed = ProcessInfo.processInfo.systemUptime - start
+        packets = try reports()
+        try check(packets.count == 3000, "1,000 wheel events preserve all 3,000 requested steps")
+        print(String(format: "Wheel burst processing: %.2f ms", elapsed * 1000))
+    }
+
+    private static func checkWheelPTY(_ terminal: LocalProcessTerminalView, scratch: URL) throws {
+        let helper = scratch.appendingPathComponent("wheel_receiver.py")
+        try #"""
+import os, re, select, sys, termios, time, tty
+previous = termios.tcgetattr(0)
+data = b""
+try:
+    tty.setraw(0)
+    sys.stdout.write("\x1b[?1000h\x1b[?1006h\r\nWHEEL_RECEIVER_READY\r\n")
+    sys.stdout.flush()
+    deadline = time.monotonic() + 10
+    matches = []
+    while len(matches) < 2 and time.monotonic() < deadline:
+        if select.select([0], [], [], 0.1)[0]:
+            data += os.read(0, 4096)
+            matches = re.findall(rb"\x1b\[<(\d+);\d+;\d+M", data)
+    result = b",".join(matches).decode("ascii")
+finally:
+    sys.stdout.write("\x1b[?1000l\x1b[?1006l")
+    sys.stdout.flush()
+    termios.tcsetattr(0, termios.TCSANOW, previous)
+print("\nPTY_WHEEL_RESULT=" + result, flush=True)
+"""#.write(to: helper, atomically: true, encoding: .utf8)
+        let quoted = "'" + helper.path.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        terminal.send(txt: "/usr/bin/python3 \(quoted)\r")
+        try wait("real PTY receiver requested mouse input") { text(in: terminal).contains("WHEEL_RECEIVER_READY") }
+        terminal.scrollWheel(with: try wheel(1))
+        terminal.scrollWheel(with: try wheel(-1))
+        try wait("native up/down wheel events reach a real terminal application") {
+            text(in: terminal).contains("PTY_WHEEL_RESULT=64,65")
+        }
     }
 
     private static func run() throws {
@@ -205,6 +363,8 @@ private struct TerminalPanelTests {
         try check(first.process.running && firstPID > 1, "zsh owns a live PTY")
         try wait("isolated zsh startup completed") { text(in: first).contains("orkhon-test> ") }
         try checkKeyboardInput(first, window: window)
+        try checkWheelInput(first)
+        try checkWheelPTY(first, scratch: scratch)
         first.send(txt: "printf '\\nCHECK_TERM=%s\\nCHECK_TTY=%s\\nCHECK_APP=%s\\n' \"$TERM\" \"$(tty)\" \"$TERM_PROGRAM\"\r")
         // Compare the physical directory below: zsh normalizes /private/tmp to /tmp
         // in PWD, although both refer to exactly the same directory.

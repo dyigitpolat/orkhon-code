@@ -1195,10 +1195,43 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         }
     }
     
+    // Orkhon backport: see ORKHON-PATCHES.md. Keep fractional trackpad motion
+    // until it amounts to a cell, instead of sending a wheel tick per pixel.
+    private var mouseScrollRemainder: CGFloat = 0
+
     public override func scrollWheel(with event: NSEvent) {
-        if event.deltaY == 0 {
+        if event.phase == .began || event.phase == .cancelled {
+            mouseScrollRemainder = 0
+        }
+        if event.scrollingDeltaY == 0 {
             return
         }
+        if allowMouseReporting && terminal.mouseMode != .off {
+            let delta = event.scrollingDeltaY
+            let lines: Int
+            if event.hasPreciseScrollingDeltas {
+                mouseScrollRemainder += delta
+                lines = Int(mouseScrollRemainder / cellDimension.height)
+                mouseScrollRemainder -= CGFloat(lines) * cellDimension.height
+            } else {
+                mouseScrollRemainder = 0
+                let rounded = Int(delta.rounded())
+                lines = rounded != 0 ? rounded : (delta > 0 ? 1 : -1)
+            }
+            guard lines != 0 else { return }
+            let hit = calculateMouseHit(with: event)
+            let displayBuffer = terminal.displayBuffer
+            let screenRow = max(0, min(displayBuffer.rows - 1, hit.grid.row - displayBuffer.yDisp))
+            let flags = event.modifierFlags
+            let button = terminal.encodeButton(button: lines > 0 ? 4 : 5, release: false,
+                shift: flags.contains(.shift), meta: flags.contains(.option), control: flags.contains(.control))
+            for _ in 0..<abs(lines) {
+                terminal.sendEvent(buttonFlags: button, x: hit.grid.col, y: screenRow,
+                                   pixelX: hit.pixels.col, pixelY: hit.pixels.row)
+            }
+            return
+        }
+        mouseScrollRemainder = 0
         let velocity = calcScrollingVelocity(delta: Int (abs (event.deltaY)))
         if event.deltaY > 0 {
             scrollUp (lines: velocity)
@@ -1317,6 +1350,7 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     }
     
     public func mouseModeChanged(source: Terminal) {
+        mouseScrollRemainder = 0
         if source.mouseMode == .anyEvent {
             startTracking()
         } else {

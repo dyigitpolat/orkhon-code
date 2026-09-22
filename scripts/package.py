@@ -41,6 +41,7 @@ for name,src in [('Scintilla.txt','Vendor/scintilla/License.txt'),('Lexilla.txt'
  if not p.exists() and name=='SwiftTerm.txt':p=root/'Vendor/SwiftTerm/LICENSE.txt'
  shutil.copy2(p,licenses/name)
 shutil.copytree(root/'Vendor/MarkdownPreview',licenses/'MarkdownPreview')
+shutil.copy2(root/'Vendor/SwiftTerm/ORKHON-PATCHES.md',licenses/'SwiftTerm-Patches.md')
 for p in (root/'Vendor/scintilla/cocoa/res').glob('*.png'):shutil.copy2(p,resources/p.name)
 if (root/'work/DocumentIcon.icns').exists():shutil.copy2(root/'work/DocumentIcon.icns',resources/'DocumentIcon.icns')
 if (root/'work/AppIcon.icns').exists():shutil.copy2(root/'work/AppIcon.icns',resources/'AppIcon.icns')
