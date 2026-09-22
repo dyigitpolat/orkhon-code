@@ -78,12 +78,37 @@ extension EditorWindowController {
         }
         var selection=AssociationSelection(choices)
         if let json=choices.first(where:{$0.extensions.contains("json") && $0.eligible}) {
+            let appGroup=choices.filter{$0.observed==json.observed}
+            check("group starts All",selection.groupState(appGroup) == .on)
             selection.toggle(json)
+            if appGroup.filter(\.eligible).count>1 {check("individual opt-out makes group Selective",selection.groupState(appGroup) == .mixed)}
             check("association search preserves opt-outs",!selection.matching(".json").isEmpty && !selection.selected.contains(json.type.identifier))
             selection.set(selection.matching(".json"),enabled:true)
             check("group actions select matching formats",selection.selected.contains(json.type.identifier))
+            selection.set(appGroup,enabled:false)
+            check("group switches Off",selection.groupState(appGroup) == .off)
+            selection.set(appGroup,enabled:true)
+            check("group returns to All",selection.groupState(appGroup) == .on)
             selection.set(choices,enabled:true)
             check("bulk selection cannot enable protected formats",choices.filter{!$0.eligible}.allSatisfy{!selection.selected.contains($0.type.identifier)})
+        }
+        let setup=FirstLaunchSetup(parent:window,onFinish:{})
+        func descendants(_ view:NSView)->[NSView] {view.subviews.flatMap{[$0]+descendants($0)}}
+        if let content=setup.window?.contentView,let json=choices.first(where:{$0.extensions.contains("json") && $0.eligible}) {
+            let views=descendants(content)
+            if let item=views.compactMap({$0 as? NSButton}).first(where:{$0.identifier?.rawValue==json.type.identifier}),let scroll=views.compactMap({$0 as? NSScrollView}).first {
+                scroll.contentView.scroll(to:NSPoint(x:0,y:80));let position=scroll.contentView.bounds.origin
+                item.performClick(nil)
+                let same=descendants(content).compactMap{$0 as? NSButton}.first{$0.identifier?.rawValue==json.type.identifier}
+                check("selection retains existing item views",same === item && item.state == .off)
+                check("selection does not move scroll position",scroll.contentView.bounds.origin==position)
+                let group=descendants(content).compactMap{$0 as? NSButton}.first{$0.accessibilityLabel()?.contains("Use Orkhon for \(json.currentName) formats:")==true}
+                check("group switch visibly becomes Selective",group?.state == .mixed && group?.accessibilityLabel()?.hasSuffix("Selective")==true)
+                group?.performClick(nil)
+                check("Selective group switch selects all",item.state == .on && group?.state == .on)
+                group?.performClick(nil)
+                check("All group switch turns off",item.state == .off && group?.state == .off)
+            } else {check("grouped setup controls exist",false)}
         }
         check("browser and media absent from association choices",!choices.contains{!Set($0.extensions).isDisjoint(with:["html","htm","mts","m2ts","ts","svg"]) && $0.eligible})
         return results

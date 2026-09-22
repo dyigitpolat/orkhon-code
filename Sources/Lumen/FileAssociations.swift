@@ -26,6 +26,7 @@ enum FileAssociations {
     }
     static func choices() -> [AssociationChoice] {
         var results:[AssociationChoice]=[]
+        var appNames:[String:String]=[:]
         let baselineURL=backupURL.deletingLastPathComponent().appendingPathComponent("Installation Defaults.json")
         let baseline=(try? Data(contentsOf:baselineURL)).flatMap{try? JSONDecoder().decode([String:String].self,from:$0)} ?? [:]
         let records=(try? Data(contentsOf:backupURL)).flatMap{try? JSONDecoder().decode([AssociationBackup].self,from:$0)} ?? []
@@ -46,8 +47,11 @@ enum FileAssociations {
             let specialist=current.map{!AssociationPolicy.editors.contains($0.lowercased())} ?? false
             let isText=type.isDynamic || type.conforms(to:.text)
             let eligible=safeAliases && isText && !specialist
-            let appURL=observed.flatMap{NSWorkspace.shared.urlForApplication(withBundleIdentifier:$0)}
-            let name=appURL.map{FileManager.default.displayName(atPath:$0.path).replacingOccurrences(of:".app",with:"")} ?? observed ?? "No default app"
+            let name:String
+            if let observed {
+                if let cached=appNames[observed] {name=cached}
+                else {let appURL=NSWorkspace.shared.urlForApplication(withBundleIdentifier:observed);name=appURL.map{FileManager.default.displayName(atPath:$0.path).replacingOccurrences(of:".app",with:"")} ?? observed;appNames[observed]=name}
+            } else {name="No default app"}
             let reason = !isText ? "macOS identifies this format as a non-text document":(!safeAliases ? "macOS also maps this type to an ambiguous extension":(specialist ? "Kept in its current specialist app":nil))
             results.append(AssociationChoice(type:type,extensions:aliases,previous:current,observed:observed,currentName:name,eligible:eligible,reason:reason))
         }

@@ -8,6 +8,11 @@ struct AssociationSelection {
     init(_ choices:[AssociationChoice]) {self.choices=choices;selected=Set(choices.filter(\.eligible).map{$0.type.identifier})}
     mutating func toggle(_ choice:AssociationChoice) {guard choice.eligible else{return};if !selected.insert(choice.type.identifier).inserted {selected.remove(choice.type.identifier)}}
     mutating func set(_ choices:[AssociationChoice],enabled:Bool) {for choice in choices where choice.eligible {if enabled {selected.insert(choice.type.identifier)} else {selected.remove(choice.type.identifier)}}}
+    func groupState(_ choices:[AssociationChoice])->NSControl.StateValue {
+        let eligible=choices.filter(\.eligible),count=eligible.filter{selected.contains($0.type.identifier)}.count
+        if count==0 {return .off}
+        return count==eligible.count ? .on:.mixed
+    }
     var chosen:[AssociationChoice] {choices.filter{$0.eligible && selected.contains($0.type.identifier)}}
     var extensionCount:Int {Set(chosen.flatMap(\.extensions)).count}
     func matching(_ query:String)->[AssociationChoice] {
@@ -44,6 +49,25 @@ private final class AssociationFormatButton:NSButton {
     }
 }
 
+/// A select-all switch with an explicit intermediate state. Its underlying
+/// control remains a native mixed-state checkbox for keyboard and VoiceOver.
+private final class AssociationGroupToggle:NSButton {
+    override func draw(_ rect:NSRect) {
+        let active=state != .off,accent=NSColor(hex:0x529F94)
+        let title=state == .mixed ? "Selective":(state == .on ? "All":"Off")
+        let attributes:[NSAttributedString.Key:Any]=[.font:NSFont.systemFont(ofSize:12,weight:.medium),.foregroundColor:active ? NSColor.labelColor:NSColor.secondaryLabelColor]
+        (title as NSString).draw(in:NSRect(x:10,y:(bounds.height-17)/2,width:74,height:17),withAttributes:attributes)
+        let track=NSRect(x:bounds.width-45,y:(bounds.height-20)/2,width:36,height:20)
+        (active ? accent.withAlphaComponent(state == .mixed ? 0.5:0.9):NSColor.labelColor.withAlphaComponent(0.18)).setFill()
+        NSBezierPath(roundedRect:track,xRadius:10,yRadius:10).fill()
+        let offset:CGFloat=state == .on ? 19:(state == .mixed ? 11:3)
+        NSColor.white.withAlphaComponent(isHighlighted ? 0.75:1).setFill()
+        NSBezierPath(ovalIn:NSRect(x:track.minX+offset,y:track.minY+3,width:14,height:14)).fill()
+        if state == .mixed {accent.setStroke();let dash=NSBezierPath();dash.move(to:NSPoint(x:track.minX+15,y:track.midY));dash.line(to:NSPoint(x:track.minX+21,y:track.midY));dash.lineWidth=1.5;dash.stroke()}
+        if window?.firstResponder === self {NSFocusRingPlacement.only.set();NSBezierPath(roundedRect:bounds.insetBy(dx:1,dy:1),xRadius:7,yRadius:7).fill()}
+    }
+}
+
 @MainActor
 final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
     private var selection:AssociationSelection
@@ -53,6 +77,10 @@ final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
     private let statusLabel=NSTextField(labelWithString:"")
     private var formatButtons:[AssociationFormatButton]=[],groupButtons:[NSButton]=[]
     private var collapsed=Set<String>()
+    private var groupSummaries:[NSTextField]=[]
+    private var groupSelectors:[AssociationGroupToggle?]=[]
+    private var appIcons:[String:NSImage]=[:]
+    private var searchWork:DispatchWorkItem?
     private var displayedGroups:[[AssociationChoice]]=[]
     private var groupKeys:[String]=[]
     private var busy=false
@@ -80,10 +108,14 @@ final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
     }
     required init?(coder:NSCoder) {fatalError("Use init(parent:onFinish:)")}
     func present(on parent:NSWindow) {guard let window else{return};parent.beginSheet(window);window.makeFirstResponder(search)}
-    func controlTextDidChange(_ notification:Notification) {rebuildGroups(resetScroll:true)}
+    func controlTextDidChange(_ notification:Notification) {
+        searchWork?.cancel()
+        let work=DispatchWorkItem{[weak self] in self?.rebuildGroups(resetScroll:true)}
+        searchWork=work;DispatchQueue.main.asyncAfter(deadline:.now()+0.08,execute:work)
+    }
     private func rebuildGroups(resetScroll:Bool=false) {
         let position=scroll.contentView.bounds.origin
-        rows.subviews.forEach{$0.removeFromSuperview()};formatButtons=[];groupButtons=[]
+        rows.subviews.forEach{$0.removeFromSuperview()};formatButtons=[];groupButtons=[];groupSummaries=[];groupSelectors=[]
         let filtered=selection.matching(search.stringValue)
         let grouped=Dictionary(grouping:filtered){$0.observed?.lowercased() ?? ""}
         func priority(_ key:String)->Int {
@@ -103,16 +135,19 @@ final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
             let disclosure=NSButton(image:NSImage(systemSymbolName:isCollapsed ? "chevron.right":"chevron.down",accessibilityDescription:"Expand or collapse \(first.currentName)") ?? NSImage(),target:self,action:#selector(toggleGroupVisibility(_:)))
             disclosure.isBordered=false;disclosure.tag=index;disclosure.frame=NSRect(x:9,y:18,width:20,height:22);card.addSubview(disclosure);groupButtons.append(disclosure)
             let icon=NSImageView(frame:NSRect(x:34,y:15,width:30,height:30))
-            if let app=first.observed.flatMap({NSWorkspace.shared.urlForApplication(withBundleIdentifier:$0)}) {icon.image=NSWorkspace.shared.icon(forFile:app.path)}
-            else {icon.image=NSImage(systemSymbolName:"doc.text",accessibilityDescription:nil);icon.contentTintColor = .secondaryLabelColor}
+            if let cached=appIcons[key] {icon.image=cached}
+            else if let app=first.observed.flatMap({NSWorkspace.shared.urlForApplication(withBundleIdentifier:$0)}) {
+                let image=NSWorkspace.shared.icon(forFile:app.path);appIcons[key]=image;icon.image=image
+            } else {icon.image=NSImage(systemSymbolName:"doc.text",accessibilityDescription:nil);icon.contentTintColor = .secondaryLabelColor}
             card.addSubview(icon)
             let label=NSTextField(labelWithString:first.currentName);label.font = .systemFont(ofSize:13,weight:.semibold);label.frame=NSRect(x:74,y:12,width:width-235,height:19);label.lineBreakMode = .byTruncatingTail;card.addSubview(label)
-            let count=Set(choices.flatMap(\.extensions)).count,chosen=choices.filter{selection.selected.contains($0.type.identifier)},chosenCount=Set(chosen.flatMap(\.extensions)).count
-            let subtitle=NSTextField(labelWithString:"\(count) \(count==1 ? "extension":"extensions") · \(chosenCount) selected"+(choices.allSatisfy{!$0.eligible} ? " · kept with this app":""));subtitle.font = .systemFont(ofSize:11);subtitle.textColor = .secondaryLabelColor;subtitle.frame=NSRect(x:74,y:32,width:width-210,height:16);card.addSubview(subtitle)
+            let subtitle=NSTextField(labelWithString:groupSummary(choices));subtitle.font = .systemFont(ofSize:11);subtitle.textColor = .secondaryLabelColor;subtitle.frame=NSRect(x:74,y:32,width:width-230,height:16);card.addSubview(subtitle);groupSummaries.append(subtitle)
             if choices.contains(where:{$0.eligible}) {
-                let all=choices.filter(\.eligible).allSatisfy{selection.selected.contains($0.type.identifier)}
-                let toggle=NSButton(title:all ? "Keep current":"Use Orkhon",target:self,action:#selector(toggleGroupSelection(_:)));toggle.isBordered=false;toggle.font = .systemFont(ofSize:11,weight:.medium);toggle.contentTintColor=NSColor(hex:0x529F94);toggle.tag=index;toggle.frame=NSRect(x:width-122,y:18,width:106,height:25);toggle.toolTip=all ? "Unselect this group":"Select eligible formats in this group";card.addSubview(toggle);groupButtons.append(toggle)
-            }
+                let toggle=AssociationGroupToggle(title:"",target:self,action:#selector(toggleGroupSelection(_:)));toggle.setButtonType(.switch);toggle.allowsMixedState=true;toggle.state=selection.groupState(choices);toggle.isBordered=false;toggle.tag=index;toggle.frame=NSRect(x:width-142,y:15,width:126,height:30)
+                toggle.setAccessibilityLabel("Use Orkhon for \(first.currentName) formats: \(stateName(toggle.state))")
+                toggle.toolTip="All: every eligible format. Selective: some formats. Off: keep this app. Click to select all or turn off."
+                card.addSubview(toggle);groupButtons.append(toggle);groupSelectors.append(toggle)
+            } else {groupSelectors.append(nil)}
             var bottom:CGFloat=60
             if !isCollapsed {
                 var x:CGFloat=14,top:CGFloat=61
@@ -132,13 +167,31 @@ final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
     }
     @objc private func toggleFormat(_ sender:NSButton) {
         guard !busy,let id=sender.identifier?.rawValue,let choice=selection.choices.first(where:{$0.type.identifier==id}) else{return}
-        selection.toggle(choice);rebuildGroups();updateSummary()
+        selection.toggle(choice);refreshSelection()
     }
     @objc private func toggleGroupVisibility(_ sender:NSButton) {guard !busy,groupKeys.indices.contains(sender.tag) else{return};let key=groupKeys[sender.tag];if !collapsed.insert(key).inserted {collapsed.remove(key)};rebuildGroups()}
     @objc private func toggleGroupSelection(_ sender:NSButton) {
         guard !busy,displayedGroups.indices.contains(sender.tag) else{return};let group=displayedGroups[sender.tag]
-        let all=group.filter(\.eligible).allSatisfy{selection.selected.contains($0.type.identifier)}
-        selection.set(group,enabled:!all);rebuildGroups();updateSummary()
+        selection.set(group,enabled:selection.groupState(group) != .on);refreshSelection()
+    }
+    private func stateName(_ value:NSControl.StateValue)->String {value == .mixed ? "Selective":(value == .on ? "All":"Off")}
+    private func groupSummary(_ choices:[AssociationChoice])->String {
+        let count=Set(choices.flatMap(\.extensions)).count,chosen=Set(choices.filter{selection.selected.contains($0.type.identifier)}.flatMap(\.extensions)).count
+        return "\(count) \(count==1 ? "extension":"extensions") · \(chosen) selected"+(choices.allSatisfy{!$0.eligible} ? " · kept with this app":"")
+    }
+    private func refreshSelection() {
+        // A click updates state in place. Retain views, focus and scroll geometry;
+        // rebuilding the whole document here caused visible jumps and stutters.
+        for button in formatButtons {
+            let value:NSControl.StateValue=selection.selected.contains(button.identifier?.rawValue ?? "") ? .on:.off
+            if button.state != value {button.state=value};button.needsDisplay=true
+        }
+        for (index,choices) in displayedGroups.enumerated() {
+            let summary=groupSummary(choices)
+            if groupSummaries[index].stringValue != summary {groupSummaries[index].stringValue=summary}
+            if let toggle=groupSelectors[index] {toggle.state=selection.groupState(choices);toggle.needsDisplay=true;toggle.setAccessibilityLabel("Use Orkhon for \(choices[0].currentName) formats: \(stateName(toggle.state))")}
+        }
+        updateSummary()
     }
     private func updateSummary() {
         let count=selection.extensionCount
@@ -166,5 +219,5 @@ final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
             }
         }
     }
-    private func finish() {UserDefaults.standard.set(true,forKey:"fileSetupCompletedV6");if let window {window.sheetParent?.endSheet(window);window.orderOut(nil)};onFinish()}
+    private func finish() {searchWork?.cancel();UserDefaults.standard.set(true,forKey:"fileSetupCompletedV6");if let window {window.sheetParent?.endSheet(window);window.orderOut(nil)};onFinish()}
 }
