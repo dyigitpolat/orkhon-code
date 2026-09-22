@@ -43,17 +43,14 @@ enum FileAssociations {
             let observed=LSCopyDefaultRoleHandlerForContentType(identifier as CFString,.all)?.takeRetainedValue() as String?
             let saved=records.first{$0.uti==identifier}?.previous ?? baseline[identifier]
             let current=observed?.hasPrefix("app.orkhon.") == true ? saved.flatMap{$0.isEmpty ? nil:$0}:observed
-            let safeAliases=Set(aliases).isSubset(of:AssociationPolicy.sourceExtensions)
-            let specialist=current.map{!AssociationPolicy.editors.contains($0.lowercased())} ?? false
             let isText=type.isDynamic || type.conforms(to:.text)
-            let eligible=safeAliases && isText && !specialist
+            let reason=AssociationPolicy.ineligibilityReason(extensions:aliases,isSource:isText)
             let name:String
             if let observed {
                 if let cached=appNames[observed] {name=cached}
                 else {let appURL=NSWorkspace.shared.urlForApplication(withBundleIdentifier:observed);name=appURL.map{FileManager.default.displayName(atPath:$0.path).replacingOccurrences(of:".app",with:"")} ?? observed;appNames[observed]=name}
             } else {name="No default app"}
-            let reason = !isText ? "macOS identifies this format as a non-text document":(!safeAliases ? "macOS also maps this type to an ambiguous extension":(specialist ? "Kept in its current specialist app":nil))
-            results.append(AssociationChoice(type:type,extensions:aliases,previous:current,observed:observed,currentName:name,eligible:eligible,reason:reason))
+            results.append(AssociationChoice(type:type,extensions:aliases,previous:current,observed:observed,currentName:name,eligible:reason == nil,reason:reason))
         }
         return results.sorted{$0.label.localizedStandardCompare($1.label) == .orderedAscending}
     }
@@ -69,7 +66,7 @@ enum FileAssociations {
         for choice in choices where choice.eligible {
             // Re-check after the consent screen, in case another app changed this default.
             let current=LSCopyDefaultRoleHandlerForContentType(choice.type.identifier as CFString,.all)?.takeRetainedValue() as String?
-            guard current == choice.observed,AssociationPolicy.eligible(extensions:(choice.type.tags[.filenameExtension] ?? [])+choice.extensions,isSource:choice.type.isDynamic || choice.type.conforms(to:.text),current:choice.previous) else { failures.append("\(choice.label): its current app changed. Review it again.");continue }
+            guard current == choice.observed,AssociationPolicy.eligible(extensions:(choice.type.tags[.filenameExtension] ?? [])+choice.extensions,isSource:choice.type.isDynamic || choice.type.conforms(to:.text)) else { failures.append("\(choice.label): its current app changed. Review it again.");continue }
             do {
                 var records:[AssociationBackup]=[]
                 if FileManager.default.fileExists(atPath:backupURL.path) { records=try JSONDecoder().decode([AssociationBackup].self,from:Data(contentsOf:backupURL)) }

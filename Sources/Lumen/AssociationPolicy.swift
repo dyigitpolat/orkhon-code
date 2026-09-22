@@ -2,7 +2,7 @@ import Foundation
 
 struct AssociationPolicy {
     // .cp is an explicit exception: macOS shares it with the C++ source group.
-    // It is disclosed in setup and never replaces a specialist app such as Captivate.
+    // The shared setting is disclosed in setup before the user confirms it.
     static let sourceExtensions:Set<String> = Set("txt text json jsonc json5 jsonl ndjson toml yaml yml ini cfg config conf properties env editorconfig gitignore gitattributes gitmodules md markdown mdown mkd mdx rst adoc asciidoc tex bib sty cls sql graphql gql proto prisma tf tfvars hcl nix cmake dockerfile make mak gmk mk c h cp c++ h++ cc cpp cxx hpp hh hxx hp ipp tpp inl m mm swift java jav py pyw pyi pyx ipynb rb rbw rake gemspec rs go js jscript javascript mjs cjs jsx cts tsx vue svelte astro css scss sass less kt kts scala sc dart cs csx fs fsx fsi clj cljs cljc ex erl hrl hs lhs lua jl r sh bash zsh fish ps1 psm1 psd1 bat cmd vb vbs php php3 php4 php5 ph3 ph4 phtml pl pm raku rakumod f f77 f90 f95 f03 f08 for ada adb ads pas pp inc asm s groovy gradle zig v sol cl cu cuh xml xsd wsdl xsl xslt csv tsv log diff patch po coffee nim nims vhdl sv svh vh glsl vert frag wgsl".split(separator:" ").map(String.init))
     // Stable Apple/system identifiers: building does not depend on the builder's
     // installed apps, LaunchServices cache, or whether a GUI session is available.
@@ -26,9 +26,15 @@ struct AssociationPolicy {
     static var additionalExtensions:[String] {
         sourceExtensions.subtracting(Set(catalog.values.flatMap{$0})).sorted()
     }
-    // Only these known general-purpose editors may be offered as replaceable defaults.
-    static let editors:Set<String> = ["com.apple.textedit","com.apple.dt.xcode","com.microsoft.vscode","com.exafunction.windsurf","com.microsoft.vscodeinsiders","com.sublimetext.3","com.sublimetext.4","com.barebones.bbedit","com.macromates.textmate","com.panic.nova","com.coteditor.coteditor","dev.zed.zed","com.todesktop.230313mzl4w4u92","app.orkhon.editor"]
-    static func eligible(extensions:[String], isSource:Bool, current:String?) -> Bool {
-        return !extensions.isEmpty && Set(extensions.map{$0.lowercased()}).isSubset(of:sourceExtensions) && isSource && (current == nil || editors.contains(current!.lowercased()))
+    // Eligibility describes the format, never the current application. Setup
+    // discloses the current app and waits for confirmation before any change.
+    static func ineligibilityReason(extensions:[String],isSource:Bool)->String? {
+        let aliases=Set(extensions.map{$0.lowercased()})
+        guard isSource else {return "macOS identifies this format as a non-text document"}
+        guard !aliases.isEmpty,aliases.isSubset(of:sourceExtensions) else {return "macOS also maps this type to an ambiguous extension"}
+        return nil
+    }
+    static func eligible(extensions:[String],isSource:Bool)->Bool {
+        ineligibilityReason(extensions:extensions,isSource:isSource) == nil
     }
 }

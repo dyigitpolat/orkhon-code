@@ -61,9 +61,9 @@ The catalog covers 181 reviewed text and source extensions, including `.txt`, `.
 
 Formats are grouped by their current app, with its icon and a three-state group switch: **All**, **Selective**, or **Off**. Unchecking an individual format marks its group Selective; the group switch selects all eligible formats or turns them off. Eligible formats are selected initially. Use search to find an extension or its current app, then uncheck exceptions. The editor records previous defaults **before** applying changes and verifies each result. You can reopen this screen from **Orkhon Code → File Defaults**. Upgrading from an older release presents the expanded setup once.
 
-HTML, SVG, browser shortcuts, media, and ambiguous binary formats are not claimed. CSV/TSV stay with Numbers or another specialist app when that is their existing default. `.ts` and `.mts` can mean video; use **Open File** for TypeScript files with those suffixes without replacing video defaults. `.tsx` and `.cts` are included. C++ source files share a macOS setting with `.cp`; the setup explicitly shows that alias.
+HTML, SVG, browser shortcuts, media, and ambiguous binary formats are not claimed. Eligibility depends on the reviewed text format, **not its current application**. Ordinary `.log` files in Console, `.csv`/`.tsv` files in Numbers, text in TextEdit, and supported source files in any other app are selectable. The current app is shown so you can uncheck exceptions before confirming. Native Numbers spreadsheets and Console diagnostic archives remain excluded. `.ts` and `.mts` can mean video; use **Open File** for TypeScript files with those suffixes without replacing video defaults. `.tsx` and `.cts` are included. C++ source files share a macOS setting with `.cp`; the setup explicitly shows that alias.
 
-Registration adds Orkhon to **Open With**; it does not itself make Orkhon the default. You do not need Full Disk Access or Accessibility permission to change defaults. If macOS rejects a choice, setup reports it instead of pretending it succeeded.
+Registration adds Orkhon to **Open With**; it does not itself make Orkhon the default. You do not need Full Disk Access or Accessibility permission to change defaults. If macOS rejects a choice, setup explains the failure and leaves the controls editable. You can adjust the selection and retry; successful changes and your opt-outs are retained. macOS presents any required consent prompt itself.
 
 ## Updating
 
@@ -92,6 +92,6 @@ Recorded previous applications are in `File Associations.json` in the support fo
 | Installer asks you to quit Orkhon | Quit all Orkhon windows with **Command-Q**, then run the package again. |
 | Build seems slow the first time | The native libraries compile locally. Later builds reuse unchanged objects. |
 | A preview fails | Switch to Source; your editable buffer is preserved. Markdown preview is limited to 5 MB and individual diagrams to 50 KB. |
-| A file type is protected | macOS maps it to a non-text or ambiguous format, or its current app is a specialist. Open it from Orkhon without changing that default. |
+| A file type is protected | macOS maps it to a non-text or ambiguous format outside the reviewed catalog. Its current app never causes a lock. Open it from Orkhon without changing that default. |
 
 For build failures, open an issue with your macOS version, `swift --version`, and the final error output. Avoid attaching personal files or credentials.

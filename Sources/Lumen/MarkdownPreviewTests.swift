@@ -92,7 +92,12 @@ extension EditorWindowController {
             selection.set(choices,enabled:true)
             check("bulk selection cannot enable protected formats",choices.filter{!$0.eligible}.allSatisfy{!selection.selected.contains($0.type.identifier)})
         }
-        let setup=FirstLaunchSetup(parent:window,onFinish:{})
+        // Use a stable app group: the real Orkhon group starts collapsed when
+        // the user has already applied defaults on this Mac.
+        let setupChoices=choices.map { choice in
+            choice.eligible ? AssociationChoice(type:choice.type,extensions:choice.extensions,previous:"com.apple.TextEdit",observed:"com.apple.TextEdit",currentName:"TextEdit",eligible:true,reason:nil):choice
+        }
+        let setup=FirstLaunchSetup(parent:window,environment:AssociationSetupEnvironment(choices:{setupChoices},apply:{_ in []},canApply:false,complete:{}),onFinish:{})
         func descendants(_ view:NSView)->[NSView] {view.subviews.flatMap{[$0]+descendants($0)}}
         if let content=setup.window?.contentView,let json=choices.first(where:{$0.extensions.contains("json") && $0.eligible}) {
             let views=descendants(content)
@@ -102,7 +107,7 @@ extension EditorWindowController {
                 let same=descendants(content).compactMap{$0 as? NSButton}.first{$0.identifier?.rawValue==json.type.identifier}
                 check("selection retains existing item views",same === item && item.state == .off)
                 check("selection does not move scroll position",scroll.contentView.bounds.origin==position)
-                let group=descendants(content).compactMap{$0 as? NSButton}.first{$0.accessibilityLabel()?.contains("Use Orkhon for \(json.currentName) formats:")==true}
+                let group=descendants(content).compactMap{$0 as? NSButton}.first{$0.accessibilityLabel()?.contains("Use Orkhon for TextEdit formats:")==true}
                 check("group switch visibly becomes Selective",group?.state == .mixed && group?.accessibilityLabel()?.hasSuffix("Selective")==true)
                 group?.performClick(nil)
                 check("Selective group switch selects all",item.state == .on && group?.state == .on)

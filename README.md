@@ -41,7 +41,7 @@ Release packages are ad-hoc signed and **not Apple-notarized**. Source builds do
 
 The setup catalog covers **181 reviewed extensions**, including plain text, JSON / JSONC / JSON5, TOML, YAML, Markdown, C/C++, Swift, Python, JavaScript, Rust, Go, configuration files and build scripts. Browse groups by their current app, search the compact list, **uncheck exceptions**, and confirm. Previous defaults are recorded before each change; the result is checked with macOS.
 
-Actual groups depend on macOS and installed apps. Browser, media, binary formats and specialist-app defaults stay protected. Registration alone does not claim defaults. Syntax highlighting supports more formats than the association list because being able to read a file does not make it safe to take over its default app. [Details and shared-extension caveats →](docs/INSTALL.md#file-defaults)
+Actual groups depend on macOS and installed apps. Every reviewed text/source format is selectable regardless of its current app, including plain text in TextEdit, logs in Console, and CSV/TSV in Numbers. The setup screen shows the current app and applies changes only after confirmation. HTML, SVG, media, native binary documents and ambiguous formats are excluded. Registration alone does not claim defaults. Syntax highlighting supports more formats than the association list because being able to read a file does not make it safe to take over its default app. [Details and shared-extension caveats →](docs/INSTALL.md#file-defaults)
 
 ### Markdown with tables, mathematics and diagrams
 

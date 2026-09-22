@@ -42,7 +42,7 @@ if [ "$3" = "/" ] && [ "$console_uid" -ge 501 ] && [ "$console_user" != "loginwi
 fi
 exit 0
 ''');postinstall.chmod(0o755)
-subprocess.run(['pkgbuild','--root',str(payload),'--identifier','app.orkhon.editor','--version','1.5.0','--install-location','/','--component-plist',str(component),'--scripts',str(scripts),str(stage/'OrkhonComponent.pkg')],check=True)
+subprocess.run(['pkgbuild','--root',str(payload),'--identifier','app.orkhon.editor','--version','1.5.1','--install-location','/','--component-plist',str(component),'--scripts',str(scripts),str(stage/'OrkhonComponent.pkg')],check=True)
 resources=stage/'resources';resources.mkdir()
 (resources/'welcome.html').write_text('''<html><head><meta charset="utf-8"></head><body style="font-family:-apple-system;font-size:13px;color:#293344"><h1 style="font-size:26px">Orkhon Code</h1><p>A small, native editor for text and code.</p><p>This installer places Orkhon Code in Applications. Quit any running copy before continuing.</p><p>On first launch, review the recommended text and source-file defaults and deselect any you want to keep. Nothing changes until you confirm. Browser, media, design, and ambiguous file formats keep their current apps.</p><p>For Apple silicon Macs running macOS 13 or later.</p></body></html>''')
 (resources/'finish.html').write_text('''<html><head><meta charset="utf-8"></head><body style="font-family:-apple-system;font-size:13px;color:#293344"><h1 style="font-size:25px">Orkhon Code is installed.</h1><p>Orkhon Code opens automatically with its welcome page. You can also find it in <b>Applications</b>.</p><p>Review the suggested text and source-file defaults in the welcome setup. Deselect any exceptions, then confirm, or keep all current defaults.</p><p>Your document files stay where they are.</p></body></html>''')
@@ -55,7 +55,7 @@ resources=stage/'resources';resources.mkdir()
 <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
 <choices-outline><line choice="default"/></choices-outline>
 <choice id="default" visible="false" title="Orkhon Code"><pkg-ref id="app.orkhon.editor"/></choice>
-<pkg-ref id="app.orkhon.editor" version="1.5.0" onConclusion="none">OrkhonComponent.pkg</pkg-ref>
+<pkg-ref id="app.orkhon.editor" version="1.5.1" onConclusion="none">OrkhonComponent.pkg</pkg-ref>
 </installer-gui-script>''')
 destination=root/'outputs/Orkhon Code Installer.pkg'
 destination.parent.mkdir(parents=True,exist_ok=True)

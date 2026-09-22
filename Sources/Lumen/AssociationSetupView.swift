@@ -3,11 +3,15 @@ import AppKit
 /// Selection is independent of filtering and collapsed groups. Search cannot
 /// accidentally discard opt-outs, and group actions never enable protected types.
 struct AssociationSelection {
-    let choices:[AssociationChoice]
+    private(set) var choices:[AssociationChoice]
     private(set) var selected:Set<String>
     init(_ choices:[AssociationChoice]) {self.choices=choices;selected=Set(choices.filter(\.eligible).map{$0.type.identifier})}
     mutating func toggle(_ choice:AssociationChoice) {guard choice.eligible else{return};if !selected.insert(choice.type.identifier).inserted {selected.remove(choice.type.identifier)}}
     mutating func set(_ choices:[AssociationChoice],enabled:Bool) {for choice in choices where choice.eligible {if enabled {selected.insert(choice.type.identifier)} else {selected.remove(choice.type.identifier)}}}
+    mutating func refresh(_ choices:[AssociationChoice]) {
+        self.choices=choices
+        selected.formIntersection(Set(choices.filter(\.eligible).map{$0.type.identifier}))
+    }
     func groupState(_ choices:[AssociationChoice])->NSControl.StateValue {
         let eligible=choices.filter(\.eligible),count=eligible.filter{selected.contains($0.type.identifier)}.count
         if count==0 {return .off}
@@ -31,12 +35,13 @@ private final class AssociationCard:NSView {
 }
 private final class AssociationFormatButton:NSButton {
     var accent=NSColor(hex:0x529F94)
+    var isProtected=false
     override func draw(_ rect:NSRect) {
         let selected=state == .on
         let shape=NSBezierPath(roundedRect:bounds.insetBy(dx:0.5,dy:0.5),xRadius:7,yRadius:7)
         (selected ? accent.withAlphaComponent(isHighlighted ? 0.24:0.13):NSColor.labelColor.withAlphaComponent(isHighlighted ? 0.07:0.025)).setFill();shape.fill()
         (selected ? accent.withAlphaComponent(0.5):NSColor.separatorColor.withAlphaComponent(0.4)).setStroke();shape.lineWidth=1;shape.stroke()
-        let symbol = !isEnabled ? "lock.fill":(selected ? "checkmark.circle.fill":"circle")
+        let symbol = isProtected ? "lock.fill":(selected ? "checkmark.circle.fill":"circle")
         let image=NSImage(systemSymbolName:symbol,accessibilityDescription:nil)?.withSymbolConfiguration(.init(pointSize:13,weight:.medium))
         let color = !isEnabled ? NSColor.tertiaryLabelColor:(selected ? accent:NSColor.secondaryLabelColor)
         if let image {let tinted=NSImage(size:image.size,flipped:false) { area in image.draw(in:area);color.setFill();area.fill(using:.sourceAtop);return true };tinted.draw(in:NSRect(x:10,y:(bounds.height-14)/2,width:14,height:14))}
@@ -69,6 +74,15 @@ private final class AssociationGroupToggle:NSButton {
 }
 
 @MainActor
+struct AssociationSetupEnvironment {
+    var choices:()->[AssociationChoice]
+    var apply:([AssociationChoice]) async -> [String]
+    var canApply:Bool
+    var complete:()->Void
+    static var live:Self {Self(choices:FileAssociations.choices,apply:FileAssociations.apply,canApply:FileAssociations.canApply,complete:{UserDefaults.standard.set(true,forKey:"fileSetupCompletedV6")})}
+}
+
+@MainActor
 final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
     private var selection:AssociationSelection
     private let search=CenteredTextField(frame:.zero),scroll=NSScrollView(),rows=AssociationFlippedView()
@@ -84,9 +98,11 @@ final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
     private var displayedGroups:[[AssociationChoice]]=[]
     private var groupKeys:[String]=[]
     private var busy=false
+    private let environment:AssociationSetupEnvironment
     private let onFinish:()->Void
-    init(parent:NSWindow,onFinish:@escaping ()->Void) {
-        selection=AssociationSelection(FileAssociations.choices());self.onFinish=onFinish
+    init(parent:NSWindow,environment supplied:AssociationSetupEnvironment? = nil,onFinish:@escaping ()->Void) {
+        let environment=supplied ?? .live
+        self.environment=environment;selection=AssociationSelection(environment.choices());self.onFinish=onFinish
         let panel=NSPanel(contentRect:NSRect(x:0,y:0,width:744,height:656),styleMask:[.titled,.fullSizeContentView],backing:.buffered,defer:false)
         super.init(window:panel);panel.title="Set up Orkhon Code";panel.titleVisibility = .hidden;panel.titlebarAppearsTransparent=true;panel.isReleasedWhenClosed=false;panel.appearance=parent.effectiveAppearance
         let content=NSView();panel.contentView=content
@@ -101,6 +117,7 @@ final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
         let separator=NSBox(frame:NSRect(x:28,y:68,width:688,height:1));separator.boxType = .separator
         skipButton.frame=NSRect(x:22,y:22,width:205,height:34);skipButton.isBordered=false;skipButton.font = .systemFont(ofSize:12);skipButton.target=self;skipButton.action=#selector(skip)
         actionButton.frame=NSRect(x:436,y:20,width:280,height:36);actionButton.font = .systemFont(ofSize:12,weight:.semibold);actionButton.accent=NSColor(hex:0x529F94);actionButton.state = .on;actionButton.target=self;actionButton.action=#selector(applySelection)
+        actionButton.identifier=NSUserInterfaceItemIdentifier("applyFileDefaults")
         for view in [kicker,title,detail,searchSurface,scroll,statusLabel,separator,skipButton,actionButton] {content.addSubview(view)}
         let byApp=Dictionary(grouping:selection.choices){$0.observed?.lowercased() ?? ""}
         collapsed=Set(byApp.filter{key,values in key=="app.orkhon.editor" || values.allSatisfy{!$0.eligible}}.keys)
@@ -155,7 +172,7 @@ final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
                     let font=NSFont.monospacedSystemFont(ofSize:12,weight:.medium)
                     let w=min(width-28,max(84,ceil((choice.label as NSString).size(withAttributes:[.font:font]).width)+43))
                     if x+w>width-14 {x=14;top+=38}
-                    let button=AssociationFormatButton(title:choice.label,target:self,action:#selector(toggleFormat(_:)));button.setButtonType(.switch);button.isBordered=false;button.state=selection.selected.contains(choice.type.identifier) ? .on:.off;button.isEnabled=choice.eligible && !busy;button.identifier=NSUserInterfaceItemIdentifier(choice.type.identifier);button.frame=NSRect(x:x,y:top,width:w,height:31);button.setAccessibilityLabel("\(choice.label), currently \(choice.currentName)");button.toolTip=choice.reason ?? "\(choice.label) · These extensions share one macOS default";card.addSubview(button);formatButtons.append(button);x+=w+7
+                    let button=AssociationFormatButton(title:choice.label,target:self,action:#selector(toggleFormat(_:)));button.setButtonType(.switch);button.isBordered=false;button.state=selection.selected.contains(choice.type.identifier) ? .on:.off;button.isProtected = !choice.eligible;button.isEnabled=choice.eligible && !busy;button.identifier=NSUserInterfaceItemIdentifier(choice.type.identifier);button.frame=NSRect(x:x,y:top,width:w,height:31);button.setAccessibilityLabel("\(choice.label), currently \(choice.currentName)");button.toolTip=choice.reason ?? "\(choice.label) · These extensions share one macOS default";card.addSubview(button);formatButtons.append(button);x+=w+7
                 }
                 bottom=top+45
             }
@@ -195,29 +212,36 @@ final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
     }
     private func updateSummary() {
         let count=selection.extensionCount
-        if !FileAssociations.canApply {
+        if !environment.canApply {
             actionButton.title="Install to change defaults";actionButton.isEnabled=false
             statusLabel.stringValue="Preview build · These choices are read-only until Orkhon Code is installed."
             skipButton.title="Continue to editor";return
         }
+        actionButton.isEnabled = !busy
         actionButton.title=count==0 ? "Continue without changes":"Use Orkhon for \(count) extensions"
-        statusLabel.stringValue="\(count) selected · Browser and media defaults stay unchanged. C++ includes .cp."
+        statusLabel.stringValue="\(count) selected · Only selected text formats will change. C++ includes .cp."
     }
     @objc private func skip() {guard !busy else{return};finish()}
     @objc private func applySelection() {
-        guard !busy,FileAssociations.canApply else{return};let selected=selection.chosen
+        guard !busy,environment.canApply else{return};let selected=selection.chosen
         if selected.isEmpty {finish();return}
         busy=true;search.isEnabled=false;actionButton.isEnabled=false;skipButton.isEnabled=false;formatButtons.forEach{$0.isEnabled=false};groupButtons.forEach{$0.isEnabled=false};statusLabel.stringValue="Applying your choices…"
         Task { [weak self] in
-            let failures=await FileAssociations.apply(selected)
-            guard let self else{return};self.busy=false
+            guard let self else{return}
+            let failures=await self.environment.apply(selected)
+            self.busy=false
             if failures.isEmpty {self.finish()}
             else {
-                self.skipButton.isEnabled=true;self.skipButton.title="Continue to editor";self.statusLabel.stringValue="Some choices were not changed."
+                // A partial success changes observed defaults. Reload them before
+                // retrying, preserving opt-outs and re-evaluating eligibility.
+                self.selection.refresh(self.environment.choices())
+                self.search.isEnabled=true;self.skipButton.isEnabled=true;self.skipButton.title="Continue to editor"
+                self.rebuildGroups();self.updateSummary()
+                self.statusLabel.stringValue="Some choices were not changed. Adjust your selection or try again."
                 let alert=NSAlert();alert.messageText="macOS could not apply every choice";alert.informativeText=failures.joined(separator:"\n");alert.addButton(withTitle:"OK")
                 if let window=self.window {alert.beginSheetModal(for:window,completionHandler:nil)}
             }
         }
     }
-    private func finish() {searchWork?.cancel();UserDefaults.standard.set(true,forKey:"fileSetupCompletedV6");if let window {window.sheetParent?.endSheet(window);window.orderOut(nil)};onFinish()}
+    private func finish() {searchWork?.cancel();environment.complete();if let window {window.sheetParent?.endSheet(window);window.orderOut(nil)};onFinish()}
 }
