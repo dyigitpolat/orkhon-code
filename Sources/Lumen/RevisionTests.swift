@@ -69,6 +69,12 @@ extension EditorWindowController {
                 check("Conflict has inline external choice",choose != nil);choose?.performClick(nil)
             }
             check("Per-conflict disk resolution",md.editor.text.hasPrefix("# Their heading") && md.externalChange==nil)
+            func plainRows(_ d:DocumentTab,_ range:Range<Int>)->Bool {
+                range.allSatisfy{d.editor.send(2046,w:$0,l:0) & ((1<<24)|(1<<25)|(1<<26)) == 0 && d.editor.send(2546,w:$0,l:0)==0}
+            }
+            check("Resolved conflict shows only normal source",plainRows(md,0..<3) && md.externalHighlights==nil && md.externalAnchors.isEmpty && activePane.externalControls==nil)
+            markConflicts(md)
+            check("Redrawing cannot restore resolved conflict colors",plainRows(md,0..<3))
             md.editor.send(2160,w:0,l:-1);md.editor.insertRecoveredText("# Their heading\n\nMy paragraph.\n")
             try "# New disk title\n\nUpdated externally.\n".write(to:one,atomically:true,encoding:.utf8)
             await wait{md.editor.text.contains("New disk title")}
@@ -88,14 +94,37 @@ extension EditorWindowController {
                 chooseExternalHunk(inlineDoc,index:0,value:1,changeID:change.id);await pause(0.4)
                 check("Inline decision immediately updates only its span",inlineDoc.editor.text.contains("let extra = 5") && inlineDoc.editor.text.contains("serverLast") && inlineDoc.externalChange?.remainingCount==1)
                 check("Partial decision survives watcher notifications",inlineDoc.externalChange?.id==change.id)
+                check("Resolved span clears colors and discarded text immediately",plainRows(inlineDoc,0..<8) && inlineDoc.externalAnchors.count==1)
+                check("Unresolved span keeps its conflict highlight",inlineDoc.editor.send(2046,w:100,l:0) & (1<<25) != 0)
                 inlineDoc.editor.go(toLine:101);root.layoutSubtreeIfNeeded();await pause(0.3);root.layoutSubtreeIfNeeded()
                 let visibleButtons=activePane.externalControls.map{descendants($0).compactMap{$0 as? NSButton}} ?? []
                 check("Inline controls follow scrolling and changed line offsets",visibleButtons.contains{$0.title=="Keep current"})
                 chooseExternalHunk(inlineDoc,index:1,value:0,changeID:change.id)
                 check("Final inline decision preserves an ignored external change",inlineDoc.externalChange==nil && inlineDoc.editor.text.contains("let mineMiddle = 99") && inlineDoc.editor.text.contains("serverLast") && inlineDoc.isModified)
+                check("Both resolved spans remain normal after final choice",plainRows(inlineDoc,0..<8) && plainRows(inlineDoc,98..<103) && inlineDoc.externalAnchors.isEmpty && activePane.externalControls==nil)
                 inlineDoc.editor.command(2176)
                 check("Undo reverses inline external replacement",inlineDoc.editor.text.contains("let mine = 4") && !inlineDoc.editor.text.contains("let extra = 5"))
             } else {check("Inline multi-span fixture detected external change",false)}
+            // Cover each explicit choice, including empty replacements and EOF.
+            for (name,base,mine,disk,choice,expected) in [
+                ("keep current","top\nold\nend\n","top\nmine\nend\n","top\ntheirs\nextra\nend\n",0,"top\nmine\nend\n"),
+                ("use incoming","top\nold\nend\n","top\nmine\nend\n","top\ntheirs\nextra\nend\n",1,"top\ntheirs\nextra\nend\n"),
+                ("keep both","top\nold\nend\n","top\nmine\nend\n","top\ntheirs\nextra\nend\n",2,"top\nmine\ntheirs\nextra\nend\n"),
+                ("accept removal","top\nold\nend\n","top\nmine\nend\n","top\nend\n",1,"top\nend\n"),
+                ("EOF without newline","top\nold","top\nmine","top\ntheirs",1,"top\ntheirs")
+            ] {
+                newDocument(nil);let d=current!
+                d.format=try DocumentStorage.decode(Data(base.utf8));d.editor.text=base;d.editor.markSaved()
+                d.editor.send(2160,w:0,l:-1);d.editor.insertRecoveredText(mine)
+                let file=try DocumentStorage.decode(Data(disk.utf8))
+                let merge=try ExternalMerge.compare(base:base,mine:mine,disk:disk)
+                receiveExternalFile(file,for:d,local:mine,modified:true,merge:.success(merge))
+                if let change=d.externalChange,change.remainingConflicts==1 {
+                    chooseExternalHunk(d,index:0,value:choice,changeID:change.id)
+                    check("Resolved \(name) retains exact accepted content",d.editor.text==expected)
+                    check("Resolved \(name) removes colors and ghost rows",plainRows(d,0..<d.editor.send(2154,w:0,l:0)) && d.externalHighlights==nil && d.externalAnchors.isEmpty && activePane.externalControls==nil)
+                } else {check("Resolved \(name) conflict fixture",false)}
+            }
             let merge=try ExternalMerge.compare(base:"a\nb\nc\n",mine:"a\nlocal\nc\n",disk:"a\nremote\nc\n")
             check("Three-way parser keeps base markers out of resolved text",merge.resolved([0:0])=="a\nlocal\nc\n" && merge.resolved([0:1])=="a\nremote\nc\n")
             let noNewline=try ExternalMerge.compare(base:"a",mine:"b",disk:"c")

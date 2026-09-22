@@ -161,7 +161,8 @@ extension EditorWindowController {
     func pane(for d:DocumentTab)->EditorPane? {firstPane.document === d ? firstPane:(editorIsSplit && secondPane.document === d ? secondPane:nil)}
     func markConflicts(_ d:DocumentTab) {
         let e=d.editor;e.clearExternalAnnotations();d.externalAnchors=[]
-        // Accepted additions are deliberately quieter than unresolved current lines.
+        // Automatic external edits stay visible while the document is unsaved.
+        // Explicitly resolved conflicts return to ordinary source text.
         for (marker,color,alpha) in [(24,0x709030,28),(25,0x5050C0,68),(26,0x4080C0,65)] {
             e.send(2045,w:marker,l:0);e.send(2040,w:marker,l:22);e.send(2042,w:marker,l:color);e.send(2476,w:marker,l:alpha)
         }
@@ -185,12 +186,12 @@ extension EditorWindowController {
             let currentLines=hunk.current.utf8.filter{$0==10}.count,externalLines=hunk.external.utf8.filter{$0==10}.count
             let first=min(max(0,count-1),max(0,hunk.localStartLine+offset))
             if let choice=change.choices[index] {
-                if choice==1 {
+                if hunk.conflictIndex==nil,choice==1 {
                     highlight(first,externalLines,24)
                     // Removed text is read-only history, never part of the buffer.
                     let anchor=first>0 ? first-1:min(count-1,first+max(0,externalLines-1))
                     append(ghost(hunk.current),style:251,line:max(0,anchor))
-                } else if choice==2 {highlight(first+currentLines,externalLines,24)}
+                }
                 offset+=(choice==0 ? currentLines:choice==1 ? externalLines:currentLines+externalLines)-currentLines
                 continue
             }
@@ -242,7 +243,9 @@ extension EditorWindowController {
         d.baselineChanged=text != change.file.text
         if !d.baselineChanged {d.editor.markSaved()}
         var highlights=change;highlights.localText=text
-        d.loading=false;d.externalChange=nil;d.externalHighlights=highlights;markConflicts(d)
+        d.loading=false;d.externalChange=nil
+        d.externalHighlights=change.merge?.changes.contains(where:{$0.conflictIndex==nil}) == true ? highlights:nil
+        markConflicts(d)
         pane(for:d)?.updatePreview();scheduleRecovery(d);rebuildTabs();updateStatus();layoutEditor();d.editor.focus()
     }
 }

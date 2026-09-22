@@ -35,4 +35,4 @@ Your files remain in their original locations. No account, telemetry, or backgro
 
 ## Changes made elsewhere
 
-Clean files refresh automatically. With unsaved edits, independent external changes merge automatically: added lines glow green and removed lines remain visible in red. Only overlapping changes need a decision. A compact **Conflict** toolbar sits between your current lines (red) and the incoming replacement (green). Choose **Keep current**, **Use incoming**, or **Keep both**. **Next conflict** jumps to the next unresolved span. This works for local and SSH files.
+Clean files refresh automatically. With unsaved edits, independent external changes merge automatically: added lines glow green and removed lines remain visible in red. Only overlapping changes need a decision. A compact **Conflict** toolbar sits between your current lines (red) and the incoming replacement (green). Choose **Keep current**, **Use incoming**, or **Keep both**. The resolved span immediately returns to normal source text, with only your accepted content remaining. **Next conflict** jumps to the next unresolved span. This works for local and SSH files.
