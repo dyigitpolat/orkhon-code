@@ -28,6 +28,8 @@ No shell starts until the terminal is opened. No project scripts execute automat
 
 Option-based symbols use your macOS keyboard layout, including brackets, angle brackets and accented characters. To send a Meta shortcut, press Escape followed by its key.
 
+**Option or Control + Left/Right** moves by word. **Option or Control + Backspace** deletes the previous word; with Forward Delete it deletes the next word. These shortcuts send familiar shell editing sequences in both local and SSH terminals. Control-arrows are aliases of Option-arrows, so they also work in shells without modified-arrow bindings. Terminal applications control the resulting editing behavior, and a macOS global shortcut may intercept a key before it reaches the app.
+
 Wheel and trackpad scrolling reach terminal applications that enable mouse reporting, including mouse-enabled tmux and terminal interfaces such as Claude Code. At an ordinary shell prompt, scrolling moves through terminal history. Trackpad motion accumulates smoothly into terminal-line steps instead of sending a full step for every tiny movement.
 
 Right-click a document tab for **Pin**, **Close Tab**, **Close Others**, or **Close to the Right**. Group closing preserves pinned tabs and asks about unsaved changes. Overflow arrows and the open-tabs list help navigate a long tab strip; selecting or opening a tab scrolls it into view.

@@ -2,6 +2,33 @@ import AppKit
 import Darwin
 @preconcurrency import SwiftTerm
 
+/// Translate editing keys without treating Option-composed text as Meta input.
+/// Keep this policy in the host so local and SSH sessions use the same bindings.
+@MainActor
+private final class TerminalInputView: LocalProcessTerminalView {
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.capsLock, .numericPad, .function])
+        if modifiers == .option || modifiers == .control,
+           let key = event.charactersIgnoringModifiers?.unicodeScalars.first {
+            let bytes: [UInt8]?
+            switch Int(key.value) {
+            case NSLeftArrowFunctionKey: bytes = EscapeSequences.emacsBack
+            case NSRightArrowFunctionKey: bytes = EscapeSequences.emacsForward
+            case 0x7f, 0x08: bytes = modifiers == .option ? [0x1b, 0x7f] : [0x17]
+            case NSDeleteFunctionKey: bytes = [0x1b, 0x64]
+            default: bytes = nil
+            }
+            if let bytes {
+                selectNone()
+                send(data: bytes[...])
+                return
+            }
+        }
+        super.keyDown(with: event)
+    }
+}
+
 /// A lazy, tabbed host for SwiftTerm 1.10.1's native AppKit/PTY implementation.
 /// The owning split view controls visibility and expansion. All entry points are main-actor APIs.
 @MainActor
@@ -229,7 +256,7 @@ final class TerminalPanel: NSView, @preconcurrency LocalProcessTerminalViewDeleg
         let directory = validDirectory(requestedDirectory) ?? FileManager.default.homeDirectoryForCurrentUser
         let size = content.bounds.width >= 40 && content.bounds.height >= 30
             ? content.bounds.size : NSSize(width: 720, height: 320)
-        let terminal = LocalProcessTerminalView(frame: NSRect(origin: .zero, size: size))
+        let terminal = TerminalInputView(frame: NSRect(origin: .zero, size: size))
         // Preserve symbols and composed text produced by macOS keyboard layouts.
         // SwiftTerm's Meta default sends ESC + the unmodified physical key instead.
         terminal.optionAsMetaKey = false

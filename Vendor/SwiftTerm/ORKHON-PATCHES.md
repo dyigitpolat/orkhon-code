@@ -43,3 +43,11 @@ SGR-pixel debug print is removed. Focus-reporting changes are not included.
 Native regression checks cover hover versus click/release/drag, all modifier
 combinations in cell/pixel formats, tracking opt-in, disabled reporting,
 scrollback coordinates, and 1,000 consecutive hover events.
+
+## Host keyboard bindings
+
+`Mac/MacTerminalView.swift` exposes the existing `keyDown(with:)` override as
+`open`, allowing Orkhon's `TerminalInputView` to implement its editing shortcuts.
+The dependency's keyboard behavior is otherwise unchanged. Word-navigation and
+deletion mappings live in the app's `TerminalPanel.swift`; ordinary Option text
+still follows AppKit's keyboard-layout and input-method path.

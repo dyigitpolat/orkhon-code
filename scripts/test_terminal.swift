@@ -153,6 +153,68 @@ private struct TerminalPanelTests {
             terminal.keyDown(with: event)
         }
         try check(capture.bytes == [27, 98], "Escape followed by a key still sends a Meta shortcut")
+
+        for modifier in [NSEvent.ModifierFlags.option, .control] {
+            for (key, code, expected) in [(NSLeftArrowFunctionKey, UInt16(123), [UInt8(27), 98]),
+                                           (NSRightArrowFunctionKey, UInt16(124), [UInt8(27), 102]),
+                                           (127, UInt16(51), modifier == .option ? [UInt8(27), 127] : [UInt8(23)]),
+                                           (NSDeleteFunctionKey, UInt16(117), [UInt8(27), 100])] {
+                capture.bytes.removeAll()
+                let event = try editingKey(key, code: code, flags: modifier, window: window)
+                terminal.keyDown(with: event)
+                try check(capture.bytes == expected,
+                          "word shortcut modifier \(modifier.rawValue), key \(code) sends \(expected) (got \(capture.bytes))")
+            }
+        }
+        capture.bytes.removeAll()
+        let repeated = try editingKey(NSLeftArrowFunctionKey, code: 123,
+            flags: [.option, .function, .numericPad, .capsLock], window: window, repeatKey: true)
+        terminal.keyDown(with: repeated)
+        try check(capture.bytes == [27, 98], "word shortcuts accept native function/numpad flags and key repeat")
+        for applicationMode in [false, true] {
+            terminal.feed(text: applicationMode ? "\u{1b}[?1h" : "\u{1b}[?1l")
+            for (key, code, final) in [(NSLeftArrowFunctionKey, UInt16(123), "D"),
+                                      (NSRightArrowFunctionKey, UInt16(124), "C")] {
+                capture.bytes.removeAll()
+                terminal.keyDown(with: try editingKey(key, code: code, flags: [.function, .numericPad], window: window))
+                let expected = "\u{1b}" + (applicationMode ? "O" : "[") + final
+                try check(capture.bytes == Array(expected.utf8), "plain arrow \(code) preserves cursor mode \(applicationMode)")
+            }
+        }
+        terminal.feed(text: "\u{1b}[?1l")
+        capture.bytes.removeAll()
+        terminal.keyDown(with: try editingKey(127, code: 51, flags: [], window: window))
+        try check(capture.bytes == [127], "plain Backspace still deletes one character")
+    }
+
+    private static func editingKey(_ scalar: Int, code: UInt16, flags: NSEvent.ModifierFlags,
+                                   window: NSWindow, repeatKey: Bool = false) throws -> NSEvent {
+        let character = String(UnicodeScalar(scalar)!)
+        return try require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
+            timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: character,
+            charactersIgnoringModifiers: character, isARepeat: repeatKey, keyCode: code), "construct editing shortcut")
+    }
+
+    private static func checkWordEditingPTY(_ terminal: LocalProcessTerminalView, window: NSWindow, scratch: URL) throws {
+        let state = scratch.appendingPathComponent("input-state")
+        for modifier in [NSEvent.ModifierFlags.option, .control] {
+            for (key, code, home, expected) in [
+                (NSLeftArrowFunctionKey, UInt16(123), false, "12:alpha beta |gamma\n"),
+                (NSRightArrowFunctionKey, UInt16(124), true, "7:alpha |beta gamma\n"),
+                (127, UInt16(51), false, "12:alpha beta |\n"),
+                (NSDeleteFunctionKey, UInt16(117), true, "1:| beta gamma\n")
+            ] {
+                try? FileManager.default.removeItem(at: state)
+                terminal.send(txt: "\u{1}\u{b}alpha beta gamma")
+                if home { terminal.send(txt: "\u{1}") }
+                terminal.keyDown(with: try editingKey(key, code: code, flags: modifier, window: window))
+                terminal.send(txt: "|\u{18}\u{7}") // Capture the ZLE buffer; never execute it.
+                try wait("zsh captured the edited input without executing it") { FileManager.default.fileExists(atPath: state.path) }
+                let actual = try String(contentsOf: state, encoding: .utf8)
+                try check(actual == expected, "real zsh word edit modifier \(modifier.rawValue), key \(code) (got \(actual.debugDescription))")
+            }
+        }
+        terminal.send(txt: "\u{1}\u{b}")
     }
 
     private static func wheel(_ delta: Int32, precise: Bool = false,
@@ -419,7 +481,14 @@ print("\nPTY_WHEEL_RESULT=" + result, flush=True)
         }
         // Deterministic prompt; disable history expansion and background-job renicing.
         // This avoids reading the user's .zshrc and works inside restricted test hosts.
-        try "PROMPT='orkhon-test> '; RPROMPT=''; HISTFILE=/dev/null; unsetopt BANG_HIST BGNICE\n"
+        try """
+        PROMPT='orkhon-test> '; RPROMPT=''; HISTFILE=/dev/null; unsetopt BANG_HIST BGNICE
+        bindkey -e
+        function orkhon_capture_input() { print -r -- "$CURSOR:$BUFFER" > "$ZDOTDIR/input-state"; }
+        zle -N orkhon_capture_input
+        bindkey '^X^G' orkhon_capture_input
+
+        """
             .write(to: scratch.appendingPathComponent(".zshrc"), atomically: true, encoding: .utf8)
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 400),
@@ -448,6 +517,7 @@ print("\nPTY_WHEEL_RESULT=" + result, flush=True)
         try check(first.process.running && firstPID > 1, "zsh owns a live PTY")
         try wait("isolated zsh startup completed") { text(in: first).contains("orkhon-test> ") }
         try checkKeyboardInput(first, window: window)
+        try checkWordEditingPTY(first, window: window, scratch: scratch)
         try checkHoverInput(first, window: window)
         try checkWheelInput(first)
         try checkWheelPTY(first, scratch: scratch)
