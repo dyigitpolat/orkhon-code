@@ -1,59 +1,75 @@
-# Orkhon Code
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme-light.svg">
+  <img alt="Orkhon Code — a focused native editor for text and code" src="docs/assets/readme-light.svg" width="1200">
+</picture>
 
-A small native macOS editor for text and source code. Scintilla handles editing, Lexilla provides syntax highlighting, and SwiftTerm supplies real terminals. There is no account, telemetry, language server, or extension marketplace.
+[![macOS build](https://github.com/dyigitpolat/orkhon-code/actions/workflows/build.yml/badge.svg)](https://github.com/dyigitpolat/orkhon-code/actions/workflows/build.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-247c73.svg)](LICENSE)
+![Platform: Apple silicon · macOS 13+](https://img.shields.io/badge/macOS-13%2B%20%C2%B7%20Apple%20silicon-586c77.svg)
+
+Orkhon Code is a small native macOS editor with a capable editing engine, broad syntax highlighting, rich previews, and terminals that stay out of the way until you need them. No account, telemetry, language server, or extension marketplace.
+
+**[Download](https://github.com/dyigitpolat/orkhon-code/releases) · [Installation guide](docs/INSTALL.md) · [User guide](Resources/User%20Guide.md) · [Contributing](CONTRIBUTING.md)**
 
 ## Build and install
 
-Requires an Apple silicon Mac, macOS 13+, Xcode Command Line Tools with Swift 6+, and Python 3. All library sources are vendored: no package downloads or dependency manager setup.
+On an Apple silicon Mac with macOS 13+, Swift 6+ and Python 3:
 
 ```sh
-# Once, if the command-line tools are not installed:
-xcode-select --install
-
-# Inside your clone of this repository:
+xcode-select --install  # Once, if Apple's command-line tools are missing
+git clone https://github.com/dyigitpolat/orkhon-code.git
+cd orkhon-code
 make install
 ```
 
-`make install` builds the app and opens **outputs/Orkhon Code Installer.pkg** in macOS Installer. Follow its normal installation prompts. Orkhon opens its welcome page automatically after installation. To build without opening Installer, run `make build` or `./scripts/build.sh`.
+`make install` builds everything and opens **outputs/Orkhon Code Installer.pkg**. Follow macOS Installer; Orkhon opens its welcome page when installation finishes. All dependencies are vendored. Normal builds need **no Node.js, npm, Homebrew, or dependency downloads**. See the [step-by-step guide](docs/INSTALL.md) for prerequisites, upgrades, and troubleshooting.
 
-The first-launch screen lists recommended source-file defaults, selected initially. Deselect exceptions or keep every current default. Changes happen only after confirmation; previous handlers are recorded first. HTML, browser documents, media and ambiguous extensions are excluded. Markdown and C++ headers are included when their current app is a general-purpose editor. macOS shares C++ source defaults (.cpp/.cc/.cxx/.c++) with .cp; setup clearly includes this alias in the C++ group. Registering the app alone does not claim a default.
+Release packages are ad-hoc signed and **not Apple-notarized**. Source builds do not require a paid developer account. Maintainers can supply `ORKHON_SIGN_IDENTITY` and `ORKHON_INSTALLER_SIGN_IDENTITY` to use Developer ID certificates before notarization.
 
-The source builds with a local ad-hoc signature. For public binary distribution, supply an Apple Developer ID identity through `ORKHON_SIGN_IDENTITY`, sign the installer with `ORKHON_INSTALLER_SIGN_IDENTITY`, and notarize it with Apple's tools. Source builds do not require a paid Apple developer account.
+## A focused feature set
 
-## Features
+| Editing | Workspace |
+| --- | --- |
+| **Scintilla** editing and **Lexilla** highlighting: 145 language profiles | Multiple windows, pinnable tabs, and two editor panes |
+| Unified find/replace, regular expressions, multiple selections | Lazy file tree; automatic common parent or explicit folder workspace |
+| Comments, indentation, wrapping, encodings, undo and recovery | Native **SwiftTerm** terminal tabs, opened on demand |
+| Four coordinated light/dark themes | SSH directories and terminals using system OpenSSH |
+| Inline resolution of external edits, with additions and removals marked | Native authentication prompts; key agent and SSH profiles supported |
 
-- 145 syntax profiles using established Lexilla lexers and upstream SciTE configuration.
-- Multiple independent windows; move tabs between windows without losing undo history.
-- Two editor panes: drag a tab to the left or right of the editor, or use its context menu.
-- Search and replace, regular expressions, multiple selections, comments, indentation, wrapping, encoding support, and recovery snapshots.
-- Native Markdown reading and WebKit HTML previews, with persistent Source / Preview / Side by side controls. Live previews debounce edits for 250 ms with a one-second maximum scheduling delay.
-- A lazy file tree that follows the common parent of open files. Explicitly opening a folder locks the workspace root. Open documents are marked and their ancestor paths expand.
-- Independent terminal tabs, started only when requested. Document and terminal tabs have unobtrusive scroll tracks beneath them.
-- SSH workspaces using the system configuration and key agent, native password/passphrase and server-verification prompts, then a remote directory browser.
-- External file monitoring, automatic clean-file reloads, automatic merging of independent external edits to dirty files, and compact inline controls for overlapping conflicts. Added lines are green; removed lines remain as red read-only annotations until saving.
-- Four coordinated themes: Obsidian, Daylight, Dusk, and Paper.
+### File associations that cover everyday text and code
 
-HTML preview executes the page's JavaScript and may load its network resources, like opening a local page in a browser. It uses an isolated, nonpersistent WebKit data store, no native script bridge, and file-origin access so relative local resources resolve. WebKit is not instantiated for text editing or Markdown.
+The setup catalog covers **181 reviewed extensions**, including plain text, JSON / JSONC / JSON5, TOML, YAML, Markdown, C/C++, Swift, Python, JavaScript, Rust, Go, configuration files and build scripts. Browse groups by their current app, search the compact list, **uncheck exceptions**, and confirm. Previous defaults are recorded before each change; the result is checked with macOS.
 
-See [the user guide](Resources/User%20Guide.md) for shortcuts and behavior.
+Actual groups depend on macOS and installed apps. Browser, media, binary formats and specialist-app defaults stay protected. Registration alone does not claim defaults. Syntax highlighting supports more formats than the association list because being able to read a file does not make it safe to take over its default app. [Details and shared-extension caveats →](docs/INSTALL.md#file-defaults)
 
-## Architecture and extensions
+### Markdown with tables, mathematics and diagrams
 
-`ApplicationCoordinator` owns application lifetime and window sessions. Each `EditorWindowController` owns its documents, workspace, terminal and two `EditorPane` hosts. An `EditorPane` binds a document's existing Scintilla view to a source/preview deck. Moving a document transfers that view and rewires its callbacks, preserving the buffer, selections and undo stack.
+Preview Markdown or place it next to the source. The renderer supports tables and alignment, task lists, strikethrough, fenced code, links, relative images, safe HTML, **KaTeX formulas** (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`) and **Mermaid diagrams** in fenced `mermaid` blocks.
+
+Rendering uses established open-source libraries: [markdown-it](https://github.com/markdown-it/markdown-it), [KaTeX](https://katex.org/), [Mermaid](https://mermaid.js.org/) and [DOMPurify](https://github.com/cure53/DOMPurify). Everything is bundled locally; there is no runtime CDN dependency. Markdown scripts, event handlers and unsafe links are blocked. HTML file preview is a separate, intentional browser view with relative CSS/JS support.
+
+**Preview work stays off the launch path.** A user-document Markdown preview creates WebKit only when requested. KaTeX loads only for formulas; Mermaid only for diagrams. Unchanged diagrams reuse a bounded cache. Edits debounce for 250 ms with a maximum scheduling delay of one second. The built-in welcome page uses lightweight native TextKit.
+
+## Architecture
+
+The UI is AppKit, the editor is Scintilla, syntax comes from Lexilla, and terminals use SwiftTerm. There is no Electron runtime or handwritten highlighting parser.
+
+`ApplicationCoordinator` owns windows and sessions. Each `EditorWindowController` owns documents, a workspace, terminal tabs and two `EditorPane` hosts. Moving a tab transfers its existing Scintilla view and callbacks, preserving its buffer and undo history.
 
 | Boundary | Responsibility |
 | --- | --- |
-| `Sources/EditorBridge` | Objective-C++ Scintilla/Lexilla adapter; no handwritten syntax parser |
-| `Sources/LumenCore` | Encoding, conflict-aware atomic storage, OS diff engine and structured three-way merge |
-| `Sources/Lumen/DocumentPreview.swift` | Lazy WebKit, native preview layout and bounded debounce |
-| `Sources/Lumen/MarkdownView.swift` | Foundation CommonMark parsing off the UI thread; TextKit rendering |
+| `Sources/EditorBridge` | Objective-C++ Scintilla/Lexilla adapter |
+| `Sources/LumenCore` | Encoding, atomic storage and structured three-way merge |
+| `Sources/Lumen/DocumentPreview.swift` | Preview modes, geometry and bounded debounce |
+| `Sources/Lumen/RichMarkdownView.swift` | Lazy Markdown web view and isolated resource origins |
+| `Sources/Lumen/MarkdownView.swift` | Native welcome-page rendering |
+| `Resources/MarkdownPreview` | Vendored, offline browser assets |
 | `Sources/Lumen/RemoteWorkspace.swift` | OpenSSH transport, quoting, bounded reads and optimistic saves |
-| `Sources/SSHAskpass` | Small native authentication helper; no credential storage |
-| `Sources/Lumen/FileTreePanel.swift` | Async directory enumeration and filesystem actions |
-| `Sources/Lumen/TerminalPanel.swift` | Native SwiftTerm views, PTYs and process lifecycle |
-| `Sources/Lumen/AssociationPolicy.swift` | Reviewed source-type catalog, kept separate from syntax coverage |
+| `Sources/SSHAskpass` | Native authentication helper; no credential storage |
+| `Sources/Lumen/AssociationPolicy.swift` | Explicit text-format catalog, separate from highlighting coverage |
 
-Add a command in the window controller's relevant extension, wire it in `Menus.swift`, and optionally expose it in `PaletteActions.swift`. Add themes in `Theme.swift`. Add language profiles through the upstream-property generator. Preview types belong behind `PreviewKind` and `EditorPane`, not in the editing engine. Internal Swift target names retain the development codename Lumen; the public bundle identifier is `app.orkhon.editor`. The existing `Orkhon Editor` application-support directory is retained so upgrades preserve recovery and association backups.
+Commands belong in the relevant window-controller extension, with menus in `Menus.swift` and optional palette entries in `PaletteActions.swift`. Themes live in `Theme.swift`. Language profiles are generated from upstream properties. Add preview formats behind `PreviewKind` and `EditorPane`. Internal Swift target names retain the development codename Lumen; the public bundle identifier is `app.orkhon.editor`.
 
 ## Validation and performance
 
@@ -61,14 +77,12 @@ Add a command in the window controller's relevant extension, wire it in `Menus.s
 make verify
 ```
 
-The full suite requires a logged-in macOS desktop because it tests real AppKit windows and PTYs. All document fixtures and recovery data are isolated under `work/` or private temporary directories. SSH transport tests run locally; they never connect to a server. CI builds the installer and exercises file-association policy, merging and local SSH operations. The workflow is included but has not run on a remote repository until you publish one.
+The complete suite uses real AppKit views, WebKit output and PTYs, so run it in a logged-in macOS desktop. Document fixtures and recovery data are isolated. SSH transport tests run locally and never connect to a server. CI builds the installer and tests association policy, merging and local SSH operations.
 
-`python3 scripts/benchmark.py` accepts the app's executable path and measures fresh processes with warm filesystem caches. Readiness includes window construction and synchronous AppKit drawing; it does not measure compositor presentation or Finder dispatch. Preview and terminal processes start only on demand. A universal sub-100 ms launch guarantee is not established; compare measured distributions on the target machine.
+`python3 scripts/benchmark.py` measures fresh release processes with warm filesystem caches. Readiness includes window construction and synchronous AppKit drawing; it excludes Finder dispatch and compositor presentation. Preview and terminal processes start on demand. **A universal sub-100 ms launch guarantee is not established.** Compare distributions on the same Mac rather than a single best run.
 
-The storage limit is 256 MB, remote files 32 MB, Markdown preview 5 MB, HTML live preview 10 MB, and automatic merge inputs 8 MB each. Larger merge conflicts retain the working buffer and offer Save As for a separate copy. Recovery is best effort, approximately 0.8 seconds after editing. Concurrent writes from unrelated applications can still race an optimistic save.
+Limits: local files 256 MB, remote files 32 MB, Markdown preview 5 MB, HTML live preview 10 MB, automatic merge inputs 8 MB each. Larger conflicts preserve the working buffer and offer Save As. Recovery is best effort, approximately 0.8 seconds after editing. Writes by unrelated programs can still race an optimistic save.
 
-## License and dependencies
+## License
 
-Orkhon source is MIT licensed. Upstream license files remain in each vendor directory and are bundled with the app. Versions and immutable source references are listed in [Vendor/DEPENDENCIES.md](Vendor/DEPENDENCIES.md).
-
-The project does not bundle credentials, signing keys, local preference backups, generated binaries, or user documents. No remote repository is configured by the local build.
+Orkhon Code is [MIT licensed](LICENSE). Upstream licenses remain with each dependency and are bundled in the app. See [dependency versions and provenance](Vendor/DEPENDENCIES.md), [security and data handling](SECURITY.md), and [contribution guidance](CONTRIBUTING.md).

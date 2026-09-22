@@ -102,7 +102,7 @@ extension EditorWindowController {
             check("Conflict choices preserve missing final newline",noNewline.resolved([0:0])=="b" && noNewline.resolved([0:1])=="c")
             let choices=FileAssociations.choices()
             check("File defaults catalog cannot be empty",choices.count>=20)
-            check("File defaults exclude HTML and ambiguous extensions",!choices.flatMap(\.extensions).contains{"html mts ts txt svg xml".split(separator:" ").map(String.init).contains($0)})
+            check("File defaults exclude HTML and ambiguous extensions",!choices.flatMap(\.extensions).contains{"html htm mts m2ts ts svg".split(separator:" ").map(String.init).contains($0)})
             check("Every enabled file group satisfies safety policy",choices.filter(\.eligible).allSatisfy{AssociationPolicy.eligible(extensions:($0.type.tags[.filenameExtension] ?? [])+$0.extensions,isSource:true,current:$0.previous)})
             let config=fixture.appendingPathComponent("ssh-config")
             try "Host production staging\n HostName example.invalid\nHost *.internal !excluded\n".write(to:config,atomically:true,encoding:.utf8)
@@ -178,6 +178,7 @@ extension EditorWindowController {
                 check("Unsaved HTML retains relative assets and updates live",(live as? String)?.contains("[42,\"rgb(12, 34, 56)\",\"Live change\"]")==true)
             } else {check("Native HTML viewer exists",false)}
         } catch {print(error);check("Revision fixtures completed",false)}
+        results.merge(await runMarkdownPreviewTests()) {_,new in new}
         let failures=results.filter{!$0.value}.map(\.key).sorted()
         if let path=ProcessInfo.processInfo.environment["LUMEN_TEST_RESULTS"],let data=try? JSONSerialization.data(withJSONObject:["checks":results,"failures":failures],options:[.prettyPrinted,.sortedKeys]) {try? data.write(to:URL(fileURLWithPath:path))}
         for controller in coordinator?.windows ?? [self] {for d in controller.documents {d.baselineChanged=false;d.editor.markSaved()}}

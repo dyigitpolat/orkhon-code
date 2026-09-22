@@ -62,7 +62,7 @@ final class EditorPane:NSView {
         } else {externalControls=nil}
         if d.previewMode != .source {
             if d.previewKind == .markdown {
-                if markdown == nil {markdown=MarkdownView(frame:.zero);markdown?.onOpen = { [weak owner] in owner?.openURL($0) }}
+                if markdown == nil || markdown?.nativeOnly != d.isWelcome {markdown=MarkdownView(nativeOnly:d.isWelcome);markdown?.onOpen = { [weak owner] in owner?.openURL($0) }}
                 if let markdown {markdown.applyTheme(owner.theme);deck.preview.addSubview(markdown)}
             } else if d.previewKind == .html {
                 if html == nil {html=HTMLPreview(frame:.zero)}
@@ -75,7 +75,7 @@ final class EditorPane:NSView {
     func schedulePreview() {guard document?.previewMode != .source else{return};refresh.schedule{[weak self] in self?.render()}}
     func render() {
         guard let d=document,d.previewMode != .source else{return}
-        if d.previewKind == .markdown {markdown?.render(d.editor.text)}
+        if d.previewKind == .markdown {markdown?.render(d.editor.text,url:d.url,documentID:d.id)}
         else if d.previewKind == .html {html?.render(d.editor.text,url:d.url,modified:d.isModified)}
     }
     override func draggingEntered(_ sender:NSDraggingInfo)->NSDragOperation {draggingUpdated(sender)}

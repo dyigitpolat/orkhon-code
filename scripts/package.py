@@ -10,16 +10,20 @@ shutil.copy2(root/'.build/release/Lumen',macos/'Orkhon Code')
 for name in ['languages.json','supported-extensions.json']:
  shutil.copy2(root/'Resources'/name,resources/name)
 for p in (root/'Resources').glob('*.md'):shutil.copy2(p,resources/p.name)
+shutil.copytree(root/'Resources/MarkdownPreview',resources/'MarkdownPreview')
 # Broad syntax detection never claims ownership of file types. System text types
 # carry an icon but rank None so registration alone cannot become a default.
-info={'CFBundleName':'Orkhon Code','CFBundleDisplayName':'Orkhon Code','CFBundleExecutable':'Orkhon Code','CFBundleIdentifier':'app.orkhon.editor.review' if preview else 'app.orkhon.editor','CFBundleVersion':'7','CFBundleShortVersionString':'1.4.0','CFBundlePackageType':'APPL','CFBundleIconFile':'AppIcon','NSHighResolutionCapable':True,'NSSupportsAutomaticGraphicsSwitching':True,'LSMinimumSystemVersion':'13.0','NSPrincipalClass':'NSApplication','NSHumanReadableCopyright':'Orkhon Code · Open-source component licenses in Resources.'}
+info={'CFBundleName':'Orkhon Code','CFBundleDisplayName':'Orkhon Code','CFBundleExecutable':'Orkhon Code','CFBundleIdentifier':'app.orkhon.editor.review' if preview else 'app.orkhon.editor','CFBundleVersion':'8','CFBundleShortVersionString':'1.5.0','CFBundlePackageType':'APPL','CFBundleIconFile':'AppIcon','NSHighResolutionCapable':True,'NSSupportsAutomaticGraphicsSwitching':True,'LSMinimumSystemVersion':'13.0','NSPrincipalClass':'NSApplication','NSHumanReadableCopyright':'Orkhon Code · Open-source component licenses in Resources.'}
 if not preview:
  helper=stage/'document-types'
  subprocess.run(['swiftc','-O','-module-cache-path',str(root/'work/module-cache'),str(root/'Sources/Lumen/AssociationPolicy.swift'),str(root/'scripts/document_types.swift'),'-o',str(helper)],check=True)
  source_types=json.loads(subprocess.check_output([str(helper)]))
  if not source_types:raise RuntimeError('macOS file-type services returned no source types. Run packaging with access to the logged-in user session; refusing to ship an empty setup list.')
- info['CFBundleDocumentTypes']=[{'CFBundleTypeName':'Text and Source Code','CFBundleTypeRole':'Editor','LSHandlerRank':'None','CFBundleTypeIconFile':'DocumentIcon.icns','LSItemContentTypes':source_types+['public.text','public.source-code']}]
-info['UTImportedTypeDeclarations']=[{'UTTypeIdentifier':'net.daringfireball.markdown','UTTypeDescription':'Markdown document','UTTypeConformsTo':['public.plain-text'],'UTTypeTagSpecification':{'public.filename-extension':['md'],'public.mime-type':'text/markdown'}}]
+ info['CFBundleDocumentTypes']=[{'CFBundleTypeName':'Text and Source Code','CFBundleTypeRole':'Editor','LSHandlerRank':'None','CFBundleTypeIconFile':'DocumentIcon.icns','LSItemContentTypes':source_types['types']+['public.text','public.source-code']}]
+ # Extension-only records are necessary for formats that macOS represents with
+ # dynamic UTIs. LSItemContentTypes takes precedence, so keep these separate.
+ info['CFBundleDocumentTypes'].append({'CFBundleTypeName':'Text and Source Extensions','CFBundleTypeRole':'Editor','LSHandlerRank':'None','CFBundleTypeIconFile':'DocumentIcon.icns','CFBundleTypeExtensions':source_types['extensions']})
+if not preview:info['UTImportedTypeDeclarations']=[{'UTTypeIdentifier':'net.daringfireball.markdown','UTTypeDescription':'Markdown document','UTTypeConformsTo':['public.plain-text'],'UTTypeTagSpecification':{'public.filename-extension':['md'],'public.mime-type':'text/markdown'}}]
 info['NSAppTransportSecurity']={'NSAllowsArbitraryLoadsInWebContent':True}
 helper_app=contents/'Helpers/Orkhon SSH Authentication.app'
 helper_contents=helper_app/'Contents';helper_binary=helper_contents/'MacOS/OrkhonSSHAskpass'
@@ -35,6 +39,7 @@ for name,src in [('Scintilla.txt','Vendor/scintilla/License.txt'),('Lexilla.txt'
  p=root/src
  if not p.exists() and name=='SwiftTerm.txt':p=root/'Vendor/SwiftTerm/LICENSE.txt'
  shutil.copy2(p,licenses/name)
+shutil.copytree(root/'Vendor/MarkdownPreview',licenses/'MarkdownPreview')
 for p in (root/'Vendor/scintilla/cocoa/res').glob('*.png'):shutil.copy2(p,resources/p.name)
 if (root/'work/DocumentIcon.icns').exists():shutil.copy2(root/'work/DocumentIcon.icns',resources/'DocumentIcon.icns')
 if (root/'work/AppIcon.icns').exists():shutil.copy2(root/'work/AppIcon.icns',resources/'AppIcon.icns')

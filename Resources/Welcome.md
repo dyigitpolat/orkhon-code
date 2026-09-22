@@ -21,7 +21,7 @@ Use **Open File** or press **⌘O**. Open a folder with **⇧⌘O** to explore a
 
 Use the theme selector for **Obsidian**, **Daylight**, **Dusk**, or **Paper**. Click the language name in the bottom-right corner to search syntax modes.
 
-Markdown and HTML have a persistent **Source / Preview / Side by side** toolbar. Previews update as you edit. With two document panes open, each pane can show source or preview. This welcome page uses the native Markdown viewer.
+Markdown and HTML have a persistent **Source / Preview / Side by side** toolbar. Previews update as you edit. With two document panes open, each pane can show source or preview. Markdown supports tables, task lists, formulas and Mermaid diagrams. Renderers load only when needed; this welcome page stays native.
 
 ## Connect to a server
 
@@ -29,7 +29,7 @@ The network button beside **Open Folder** opens an SSH workspace. Use an SSH-con
 
 ## File defaults
 
-The setup screen recommends conservative source-file types. Deselect anything you want to keep in its current app, then confirm. Browser, media, design, and ambiguous formats stay protected. You can revisit the choices in **Orkhon Code > File Defaults**.
+The searchable setup screen includes common text and code formats such as **.txt**, **.json**, **.toml**, **.yaml**, **.md**, **.cpp**, and **.hpp**. Deselect anything you want to keep in its current app, then confirm. Browser, media, design, and ambiguous formats stay protected. You can revisit the choices in **Orkhon Code > File Defaults**.
 
 Your files remain in their original locations. No account, telemetry, or background language server is required.
 

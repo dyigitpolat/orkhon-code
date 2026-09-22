@@ -2,7 +2,7 @@ import AppKit
 
 /// Foundation's CommonMark parser and native TextKit rendering. No browser process.
 @MainActor
-final class MarkdownView:NSView,NSTextViewDelegate {
+final class NativeMarkdownView:NSView,NSTextViewDelegate {
     private let scroll=NSScrollView(), text=NSTextView()
     private var generation=0
     private var parsing=false

@@ -10,6 +10,7 @@ fi
 xcrun --find swiftc >/dev/null
 command -v python3 >/dev/null || { print -u2 "Install Python 3 before building."; exit 2; }
 mkdir -p work outputs
+python3 scripts/verify_preview_assets.py
 python3 scripts/build_native.py
 python3 scripts/generate_languages.py
 python3 scripts/generate_style_names.py

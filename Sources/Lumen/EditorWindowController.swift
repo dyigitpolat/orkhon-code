@@ -469,7 +469,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
         NSPrintOperation(view:text,printInfo:info).run()
     }
     func showError(_ error:Error) {let a=NSAlert(error:error);a.runModal()}
-    @objc func about(_ sender:Any?) {NSApp.orderFrontStandardAboutPanel(options:[.applicationName:"Orkhon Code",.applicationVersion:Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "1.4.0",.version:Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "7",.credits:NSAttributedString(string:"A small, native place for text.\n\nEditing: Scintilla · Syntax: Lexilla\nTerminal: SwiftTerm\nOpen-source licenses included in the app.")])}
+    @objc func about(_ sender:Any?) {NSApp.orderFrontStandardAboutPanel(options:[.applicationName:"Orkhon Code",.applicationVersion:Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "1.5.0",.version:Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "8",.credits:NSAttributedString(string:"A small, native place for text.\n\nEditing: Scintilla · Syntax: Lexilla\nTerminal: SwiftTerm\nOpen-source licenses included in the app.")])}
     @objc func help(_ sender:Any?) {if let url=Bundle.main.url(forResource:"User Guide",withExtension:"md"){openURL(url)}}
     @objc func quickOpen(_ sender:Any?) {openFile(sender)}
 }

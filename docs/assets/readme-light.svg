@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="280" viewBox="0 0 1200 280" role="img" aria-labelledby="title desc">
+<title id="title">Orkhon Code</title><desc id="desc">A focused native editor for text and code. Open source for macOS.</desc>
+<g fill="none" stroke="#247C73" stroke-linecap="round" stroke-linejoin="round">
+<path d="M72 180V100L112 77L152 100V180L112 203Z" stroke-width="8"/>
+<path d="M112 193V87M75 137L112 161L149 137" stroke-width="6"/>
+</g>
+<g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+<text x="200" y="85" fill="#247C73" font-size="13" font-weight="600" letter-spacing="3.5">NATIVE MACOS · OPEN SOURCE</text>
+<text x="196" y="153" fill="#172B35" font-size="62" font-weight="600" letter-spacing="-2">Orkhon Code</text>
+<text x="200" y="199" fill="#586C77" font-size="22" letter-spacing=".1">A focused native editor for text and code.</text>
+</g>
+<g fill="none" stroke="#247C73" stroke-width="2" opacity=".32"><path d="M936 93h-16v94h16M1080 93h16v94h-16"/><path d="M956 112h63m-63 19h113m-89 19h68m-92 19h89" stroke-linecap="round"/></g>
+</svg>
