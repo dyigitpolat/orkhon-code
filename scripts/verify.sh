@@ -18,6 +18,8 @@ work/test-merge
 swiftc -O Sources/Lumen/RemoteWorkspace.swift scripts/test_remote.swift -o work/test-remote
 work/test-remote
 app_path=$(cat work/staged-app-path.txt)
+swiftc Sources/Lumen/AssociationPolicy.swift scripts/test_open_with.swift -o work/test-open-with
+work/test-open-with "$app_path"
 python3 scripts/test_integration.py "$app_path"
 python3 scripts/test_startup.py "$app_path"
 codesign --verify --deep --strict "$app_path"

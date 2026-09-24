@@ -38,8 +38,8 @@ woff woff2 ttf otf eot sqlite sqlite3 db pdb pch
 # Valid text profiles can still have unsafe system-wide associations: Outlook
 # messages, MySQL table definitions and generic database indexes are binary.
 # Keep detection/manual profiles, but do not advertise these to Launch Services.
-# .ts is deliberately TypeScript; the installer should declare a source-code UTI
-# instead of inheriting the MPEG transport-stream UTI for that extension.
+# Ambiguous text suffixes such as .ts are available in Open With, but never
+# enter the default-app catalog merely because a syntax profile recognizes them.
 UNSAFE_INSTALLER_EXTENSIONS = BINARY_EXTENSIONS | {"msg", "frm", "idx"}
 GENERIC_FILES = {"SciTE", "SciTEGlobal", "Embedded", "abbrev"}
 VARIABLE = re.compile(r"\$\(([^()]*)\)")

@@ -70,6 +70,8 @@ This is a locally built and ad-hoc signed app. Developer ID signing and Apple no
 
 ## First launch and default apps
 
+Finder's **Open With → Orkhon Code** is available for supported text and source extensions whether or not you select them in File Defaults. HTML and SVG source are included in Open With while their default apps remain outside the setup selection.
+
 Installation adds Orkhon Code to Applications and opens its welcome page automatically. Recommended text and source-file groups start selected. Formats are grouped by their current app. Each group switch shows **All**, **Selective**, or **Off**. Unchecking one format changes its group to Selective; clicking the group switch selects all eligible formats or turns the group off. Search by extension or app. Deselect any exceptions, then choose “Apply defaults and start editing.” Each group shows its current or recorded previous app. Markdown, C++ source, and C++ headers are eligible. macOS shares C++ source defaults with .cp, which is shown explicitly in that group. “Keep all current defaults” starts editing without changing associations. Revisit the screen through Orkhon Code → File Defaults.
 
 The catalog covers 181 reviewed text and code extensions, including .txt, .json, .jsonc, .toml, .yaml, .rs, and .go. Browser documents (including HTML), images and design files, media, and ambiguous extensions keep their current apps. You can still open supported text manually and use its syntax highlighting.

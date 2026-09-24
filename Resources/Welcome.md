@@ -31,6 +31,8 @@ The network button beside **Open Folder** opens an SSH workspace. Use an SSH-con
 
 The searchable setup screen includes common text and code formats such as **.txt**, **.json**, **.toml**, **.yaml**, **.md**, **.cpp**, and **.hpp**. Deselect anything you want to keep in its current app, then confirm. Browser, media, design, and ambiguous formats stay protected. You can revisit the choices in **Orkhon Code > File Defaults**.
 
+Orkhon also appears in Finder's **Open With** menu for supported text and source files, including HTML and SVG. You can use it there even when you keep another app as the default.
+
 Your files remain in their original locations. No account, telemetry, or background language server is required.
 
 ## Changes made elsewhere
