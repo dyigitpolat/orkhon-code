@@ -51,3 +51,11 @@ scrollback coordinates, and 1,000 consecutive hover events.
 The dependency's keyboard behavior is otherwise unchanged. Word-navigation and
 deletion mappings live in the app's `TerminalPanel.swift`; ordinary Option text
 still follows AppKit's keyboard-layout and input-method path.
+
+The host follows [VS Code's macOS sendSequence bindings](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminalContrib/sendSequence/browser/terminal.sendSequence.contribution.ts)
+and [xterm's modified-key protocol](https://github.com/xtermjs/xterm.js/blob/master/src/common/input/Keyboard.ts).
+Control-arrows retain CSI modifier parameters instead of being aliases of
+Option's word-navigation sequences. Option-Backspace sends Ctrl-W;
+Control-Backspace sends Ctrl-H. Command's line-editing shortcuts are handled
+by the same host hook. Native byte tests cover both cursor modes, combined
+modifiers and keyboard-layout text; PTY tests check actual shell editing.

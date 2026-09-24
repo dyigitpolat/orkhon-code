@@ -19,4 +19,5 @@ swiftc -O Sources/Lumen/RemoteWorkspace.swift scripts/test_remote.swift -o work/
 work/test-remote
 app_path=$(cat work/staged-app-path.txt)
 python3 scripts/test_integration.py "$app_path"
+python3 scripts/test_startup.py "$app_path"
 codesign --verify --deep --strict "$app_path"

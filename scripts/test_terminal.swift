@@ -154,16 +154,36 @@ private struct TerminalPanelTests {
         }
         try check(capture.bytes == [27, 98], "Escape followed by a key still sends a Meta shortcut")
 
-        for modifier in [NSEvent.ModifierFlags.option, .control] {
-            for (key, code, expected) in [(NSLeftArrowFunctionKey, UInt16(123), [UInt8(27), 98]),
-                                           (NSRightArrowFunctionKey, UInt16(124), [UInt8(27), 102]),
-                                           (127, UInt16(51), modifier == .option ? [UInt8(27), 127] : [UInt8(23)]),
-                                           (NSDeleteFunctionKey, UInt16(117), [UInt8(27), 100])] {
+        // Expected bytes from VS Code's macOS sendSequence bindings and xterm.
+        let bindings: [(Int, UInt16, NSEvent.ModifierFlags, String)] = [
+            (NSLeftArrowFunctionKey, 123, .option, "\u{1b}b"),
+            (NSRightArrowFunctionKey, 124, .option, "\u{1b}f"),
+            (NSLeftArrowFunctionKey, 123, .control, "\u{1b}[1;5D"),
+            (NSRightArrowFunctionKey, 124, .control, "\u{1b}[1;5C"),
+            (NSUpArrowFunctionKey, 126, .option, "\u{1b}[1;5A"),
+            (NSDownArrowFunctionKey, 125, .option, "\u{1b}[1;5B"),
+            (NSUpArrowFunctionKey, 126, .control, "\u{1b}[1;5A"),
+            (NSDownArrowFunctionKey, 125, .control, "\u{1b}[1;5B"),
+            (127, 51, .option, "\u{17}"),
+            (8, 51, .control, "\u{8}"),
+            (NSDeleteFunctionKey, 117, .option, "\u{1b}d"),
+            (NSDeleteFunctionKey, 117, .control, "\u{1b}[3;5~"),
+            (NSLeftArrowFunctionKey, 123, .command, "\u{1}"),
+            (NSRightArrowFunctionKey, 124, .command, "\u{5}"),
+            (127, 51, .command, "\u{15}"),
+            (NSLeftArrowFunctionKey, 123, [.control, .shift], "\u{1b}[1;6D"),
+            (NSRightArrowFunctionKey, 124, [.option, .shift], "\u{1b}[1;4C"),
+            (NSRightArrowFunctionKey, 124, [.control, .option], "\u{1b}[1;7C"),
+            (NSDeleteFunctionKey, 117, [.control, .shift], "\u{1b}[3;6~"),
+            (127, 51, [.control, .option], "\u{1b}\u{8}")
+        ]
+        for applicationMode in [false, true] {
+            terminal.feed(text: applicationMode ? "\u{1b}[?1h" : "\u{1b}[?1l")
+            for (key, code, flags, expected) in bindings {
                 capture.bytes.removeAll()
-                let event = try editingKey(key, code: code, flags: modifier, window: window)
-                terminal.keyDown(with: event)
-                try check(capture.bytes == expected,
-                          "word shortcut modifier \(modifier.rawValue), key \(code) sends \(expected) (got \(capture.bytes))")
+                terminal.keyDown(with: try editingKey(key, code: code, flags: flags, window: window))
+                try check(capture.bytes == Array(expected.utf8),
+                          "VS Code editing key \(code), modifiers \(flags.rawValue), cursor mode \(applicationMode) (got \(capture.bytes))")
             }
         }
         capture.bytes.removeAll()
@@ -197,22 +217,25 @@ private struct TerminalPanelTests {
 
     private static func checkWordEditingPTY(_ terminal: LocalProcessTerminalView, window: NSWindow, scratch: URL) throws {
         let state = scratch.appendingPathComponent("input-state")
-        for modifier in [NSEvent.ModifierFlags.option, .control] {
-            for (key, code, home, expected) in [
-                (NSLeftArrowFunctionKey, UInt16(123), false, "12:alpha beta |gamma\n"),
-                (NSRightArrowFunctionKey, UInt16(124), true, "7:alpha |beta gamma\n"),
-                (127, UInt16(51), false, "12:alpha beta |\n"),
-                (NSDeleteFunctionKey, UInt16(117), true, "1:| beta gamma\n")
-            ] {
-                try? FileManager.default.removeItem(at: state)
-                terminal.send(txt: "\u{1}\u{b}alpha beta gamma")
-                if home { terminal.send(txt: "\u{1}") }
-                terminal.keyDown(with: try editingKey(key, code: code, flags: modifier, window: window))
-                terminal.send(txt: "|\u{18}\u{7}") // Capture the ZLE buffer; never execute it.
-                try wait("zsh captured the edited input without executing it") { FileManager.default.fileExists(atPath: state.path) }
-                let actual = try String(contentsOf: state, encoding: .utf8)
-                try check(actual == expected, "real zsh word edit modifier \(modifier.rawValue), key \(code) (got \(actual.debugDescription))")
-            }
+        let edits: [(Int, UInt16, NSEvent.ModifierFlags, Bool, String)] = [
+            (NSLeftArrowFunctionKey, 123, .option, false, "12:alpha beta |gamma\n"),
+            (NSRightArrowFunctionKey, 124, .option, true, "7:alpha |beta gamma\n"),
+            (127, 51, .option, false, "12:alpha beta |\n"),
+            (NSDeleteFunctionKey, 117, .option, true, "1:| beta gamma\n"),
+            (8, 51, .control, false, "16:alpha beta gamm|\n"),
+            (NSLeftArrowFunctionKey, 123, .command, false, "1:|alpha beta gamma\n"),
+            (NSRightArrowFunctionKey, 124, .command, true, "17:alpha beta gamma|\n"),
+            (127, 51, .command, false, "1:|\n")
+        ]
+        for (key, code, modifier, home, expected) in edits {
+            try? FileManager.default.removeItem(at: state)
+            terminal.send(txt: "\u{1}\u{b}alpha beta gamma")
+            if home { terminal.send(txt: "\u{1}") }
+            terminal.keyDown(with: try editingKey(key, code: code, flags: modifier, window: window))
+            terminal.send(txt: "|\u{18}\u{7}") // Capture the ZLE buffer; never execute it.
+            try wait("zsh captured the edited input without executing it") { FileManager.default.fileExists(atPath: state.path) }
+            let actual = try String(contentsOf: state, encoding: .utf8)
+            try check(actual == expected, "real zsh editing key \(code), modifiers \(modifier.rawValue) (got \(actual.debugDescription))")
         }
         terminal.send(txt: "\u{1}\u{b}")
     }

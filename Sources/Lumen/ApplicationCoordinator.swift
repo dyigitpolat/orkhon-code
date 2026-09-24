@@ -8,15 +8,25 @@ final class ApplicationCoordinator:NSObject,NSApplicationDelegate {
     weak var menuOwner:EditorWindowController?
     private(set) var windows:[EditorWindowController]=[]
     private var pendingURLs:[URL]=[]
+    private var launchStarted=false
+    private var launchFinished=false
     private let sessionQueue=DispatchQueue(label:"app.orkhon.sessions",qos:.utility)
     private var restoringWindows=false
     private var lastSessionURL:URL?
     var active:EditorWindowController? {windows.first{$0.window === NSApp.mainWindow} ?? windows.last}
 
     func applicationDidFinishLaunching(_ notification:Notification) {
+        guard !launchStarted else{return}
+        launchStarted=true
         let controller=EditorWindowController();controller.coordinator=self;windows.append(controller)
-        controller.pendingURLs=pendingURLs + ProcessInfo.processInfo.arguments.dropFirst().filter{!$0.hasPrefix("-") && FileManager.default.fileExists(atPath:$0)}.map{URL(fileURLWithPath:$0)};pendingURLs=[]
+        pendingURLs += ProcessInfo.processInfo.arguments.dropFirst().filter{!$0.hasPrefix("-") && FileManager.default.fileExists(atPath:$0)}.map{URL(fileURLWithPath:$0)}
         controller.applicationDidFinishLaunching(notification)
+        // isRunning becomes true before didFinishLaunching. Only this explicit
+        // boundary makes open/reopen events eligible to create another window.
+        var seen=Set<URL>()
+        controller.pendingURLs=pendingURLs.map{$0.standardizedFileURL.resolvingSymlinksInPath()}.filter{seen.insert($0).inserted}
+        controller.suppressSessionRestore = !controller.pendingURLs.isEmpty
+        pendingURLs=[];launchFinished=true
     }
     @discardableResult func newWindow()->EditorWindowController {
         let controller=EditorWindowController();controller.coordinator=self;windows.append(controller)
@@ -27,18 +37,22 @@ final class ApplicationCoordinator:NSObject,NSApplicationDelegate {
         controller.bringToFront();return controller
     }
     func application(_ sender:NSApplication,open urls:[URL]) {
+        guard !urls.isEmpty else{return}
+        guard launchFinished else{pendingURLs+=urls;return}
         guard !windows.isEmpty else {
-            if NSApp.isRunning {let c=newWindow();urls.forEach{c.openURL($0)}} else {pendingURLs+=urls}
+            let c=newWindow();urls.forEach{c.openURL($0)}
             return
         }
         for url in urls {
             let canonical=url.standardizedFileURL.resolvingSymlinksInPath()
             let owner=windows.first{$0.documents.contains{$0.url==canonical}} ?? active!
+            owner.suppressSessionRestore=true
             owner.openURL(url);owner.bringToFront()
         }
         DispatchQueue.main.async {self.active?.bringToFront()}
     }
     func applicationShouldHandleReopen(_ sender:NSApplication,hasVisibleWindows flag:Bool)->Bool {
+        guard launchFinished else{return true}
         if let active {active.bringToFront()} else {newWindow()};return true
     }
     func applicationDidBecomeActive(_ notification:Notification) {active?.applicationDidBecomeActive(notification)}

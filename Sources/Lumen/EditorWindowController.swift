@@ -80,10 +80,11 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
     var languageWindow:CommandPalette?
     var recentFilesMenu=NSMenu(title:"Open Recent")
     var launched=false, restoring=false, pendingURLs:[URL]=[]
+    var suppressSessionRestore=false
     var automatedTesting:Bool {
         ProcessInfo.processInfo.environment["ORKHON_TEST_DATA"] != nil &&
         ProcessInfo.processInfo.environment["ORKHON_PAUSE_INLINE_TEST"] != "1" &&
-        CommandLine.arguments.contains(where:{["--self-test","--revision-tests"].contains($0)})
+        CommandLine.arguments.contains(where:{["--self-test","--revision-tests","--startup-tests"].contains($0)})
     }
     var recoveryURL:URL { if let path=ProcessInfo.processInfo.environment["ORKHON_TEST_DATA"] { return URL(fileURLWithPath:path).appendingPathComponent("Recovery") }; return FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Orkhon Editor/Recovery",isDirectory:true) }
     var sessionURL:URL { recoveryURL.deletingLastPathComponent().appendingPathComponent("session.json") }
@@ -106,6 +107,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSSearchFieldDel
             guard let self else{return}
             self.populateLanguages()
             if !self.pendingURLs.isEmpty { self.pendingURLs.forEach { self.openURL($0) }; self.pendingURLs=[];self.offerFirstLaunchSetup() }
+            else if self.suppressSessionRestore {self.offerFirstLaunchSetup()}
             else if ProcessInfo.processInfo.environment["LUMEN_BENCHMARK_FILE"] == nil { self.restoreSession() }
         }
     }

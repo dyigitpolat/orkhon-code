@@ -5,7 +5,7 @@ let lumenStart = DispatchTime.now().uptimeNanoseconds
 func startupTrace(_ stage:String) {
     if ProcessInfo.processInfo.environment["LUMEN_PROFILE"] != nil {fputs("\(stage): \(Double(DispatchTime.now().uptimeNanoseconds-lumenStart)/1e6) ms\n",stderr)}
 }
-if ProcessInfo.processInfo.arguments.contains(where:{["--self-test","--revision-tests"].contains($0)}) && ProcessInfo.processInfo.environment["ORKHON_TEST_DATA"] == nil {
+if ProcessInfo.processInfo.arguments.contains(where:{["--self-test","--revision-tests","--startup-tests"].contains($0)}) && ProcessInfo.processInfo.environment["ORKHON_TEST_DATA"] == nil {
     fputs("Set ORKHON_TEST_DATA to an isolated test directory before running integration tests.\n",stderr);exit(2)
 }
 MainActor.assumeIsolated {
@@ -17,5 +17,6 @@ MainActor.assumeIsolated {
     app.delegate = delegate
     app.setActivationPolicy(.regular)
     startupTrace("activation policy")
-    withExtendedLifetime(delegate) { app.run() }
+    let startupTests=StartupTests(coordinator:delegate)
+    withExtendedLifetime((delegate,startupTests)) { app.run() }
 }

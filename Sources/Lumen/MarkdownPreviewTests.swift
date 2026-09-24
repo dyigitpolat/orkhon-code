@@ -97,7 +97,7 @@ extension EditorWindowController {
         let setupChoices=choices.map { choice in
             choice.eligible ? AssociationChoice(type:choice.type,extensions:choice.extensions,previous:"com.apple.TextEdit",observed:"com.apple.TextEdit",currentName:"TextEdit",eligible:true,reason:nil):choice
         }
-        let setup=FirstLaunchSetup(parent:window,environment:AssociationSetupEnvironment(choices:{setupChoices},apply:{_ in []},canApply:false,complete:{}),onFinish:{})
+        let setup=FirstLaunchSetup(parent:window,environment:AssociationSetupEnvironment(choices:{setupChoices},apply:{_,_ in AssociationApplyResult()},canApply:false,complete:{}),onFinish:{})
         func descendants(_ view:NSView)->[NSView] {view.subviews.flatMap{[$0]+descendants($0)}}
         if let content=setup.window?.contentView,let json=choices.first(where:{$0.extensions.contains("json") && $0.eligible}) {
             let views=descendants(content)

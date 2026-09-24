@@ -37,9 +37,12 @@ extension EditorWindowController {
             let records=urls.filter{$0.pathExtension=="json"}.compactMap{url -> (URL,RecoveryRecord)? in guard let data=try? Data(contentsOf:url),let r=try? JSONDecoder().decode(RecoveryRecord.self,from:data) else{return nil};return(url,r)}.sorted{$0.1.date<$1.1.date}
             DispatchQueue.main.async {
                 guard let self else{return};self.restoring=true
-                if let folder=oldSession?.folder,FileManager.default.fileExists(atPath:folder){self.manualWorkspace=true;self.workspaceURL=URL(fileURLWithPath:folder)}
+                // A Finder open can arrive while this background read is in flight.
+                // Recover unsaved work, but do not resurrect unrelated saved windows.
+                let restoreSavedWindows = !self.suppressSessionRestore
+                if restoreSavedWindows,let folder=oldSession?.folder,FileManager.default.fileExists(atPath:folder){self.manualWorkspace=true;self.workspaceURL=URL(fileURLWithPath:folder)}
                 let recoveredPaths=Set(records.compactMap{$0.1.path})
-                for path in oldSession?.paths ?? [] where !recoveredPaths.contains(path) && FileManager.default.fileExists(atPath:path) {self.openURL(URL(fileURLWithPath:path));self.documents.last?.pinned=oldSession?.pinnedPaths?.contains(path) == true}
+                for path in restoreSavedWindows ? (oldSession?.paths ?? []) : [] where !recoveredPaths.contains(path) && FileManager.default.fileExists(atPath:path) {self.openURL(URL(fileURLWithPath:path));self.documents.last?.pinned=oldSession?.pinnedPaths?.contains(path) == true}
                 for (oldURL,r) in records {
                     let d=DocumentTab();d.url=r.path.map{URL(fileURLWithPath:$0)}
                     if let original=r.originalData {d.format=try? DocumentStorage.decode(original)}
@@ -54,7 +57,7 @@ extension EditorWindowController {
                     let newRecordURL=self.recoveryURL.appendingPathComponent(d.id+".json")
                     self.recoveryQueue.asyncAfter(deadline:.now()+3) {if FileManager.default.fileExists(atPath:newRecordURL.path){try? FileManager.default.removeItem(at:oldURL)}}
                 }
-                self.coordinator?.restoreAdditionalWindows(Array((archive?.windows ?? []).dropFirst()))
+                if restoreSavedWindows {self.coordinator?.restoreAdditionalWindows(Array((archive?.windows ?? []).dropFirst()))}
                 self.restoring=false
                 if !records.isEmpty {if let blank=self.documents.first,blank.url==nil,!blank.isModified,blank.editor.text.isEmpty {self.documents.removeFirst()};self.selectDocument(self.documents.count-1)}
                 self.updateAutomaticWorkspace();self.persistSession();self.offerFirstLaunchSetup()

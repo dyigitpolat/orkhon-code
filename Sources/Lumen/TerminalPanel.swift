@@ -9,23 +9,52 @@ private final class TerminalInputView: LocalProcessTerminalView {
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.capsLock, .numericPad, .function])
-        if modifiers == .option || modifiers == .control,
-           let key = event.charactersIgnoringModifiers?.unicodeScalars.first {
-            let bytes: [UInt8]?
-            switch Int(key.value) {
-            case NSLeftArrowFunctionKey: bytes = EscapeSequences.emacsBack
-            case NSRightArrowFunctionKey: bytes = EscapeSequences.emacsForward
-            case 0x7f, 0x08: bytes = modifiers == .option ? [0x1b, 0x7f] : [0x17]
-            case NSDeleteFunctionKey: bytes = [0x1b, 0x64]
-            default: bytes = nil
-            }
-            if let bytes {
-                selectNone()
-                send(data: bytes[...])
-                return
-            }
+        if let bytes = editingSequence(keyCode: event.keyCode, modifiers: modifiers) {
+            selectNone()
+            send(data: bytes[...])
+            return
         }
         super.keyDown(with: event)
+    }
+
+    /// VS Code's macOS sendSequence bindings, then xterm's modified-key protocol.
+    /// Control is deliberately distinct from Option; the shell/TUI interprets it.
+    /// Match physical editing keys so Control-Backspace also works when AppKit
+    /// supplies a control character instead of DEL. Composed text stays native.
+    private func editingSequence(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> [UInt8]? {
+        if modifiers == .option {
+            switch keyCode {
+            case 123: return [27, 98]
+            case 124: return [27, 102]
+            case 125: return Array("\u{1b}[1;5B".utf8)
+            case 126: return Array("\u{1b}[1;5A".utf8)
+            case 51: return [23]
+            case 117: return [27, 100]
+            default: break
+            }
+        }
+        if modifiers == .command {
+            switch keyCode {
+            case 123: return [1]
+            case 124: return [5]
+            case 51: return [21]
+            default: return nil
+            }
+        }
+        guard !modifiers.isEmpty, !modifiers.contains(.command) else { return nil }
+        let parameter = 1 + (modifiers.contains(.shift) ? 1 : 0)
+            + (modifiers.contains(.option) ? 2 : 0) + (modifiers.contains(.control) ? 4 : 0)
+        let suffix: String
+        switch keyCode {
+        case 123: suffix = "D"
+        case 124: suffix = "C"
+        case 125: suffix = "B"
+        case 126: suffix = "A"
+        case 117: return Array("\u{1b}[3;\(parameter)~".utf8)
+        case 51: return (modifiers.contains(.option) ? [27] : []) + [modifiers.contains(.control) ? 8 : 127]
+        default: return nil
+        }
+        return Array("\u{1b}[1;\(parameter)\(suffix)".utf8)
     }
 }
 

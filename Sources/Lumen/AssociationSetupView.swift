@@ -76,10 +76,11 @@ private final class AssociationGroupToggle:NSButton {
 @MainActor
 struct AssociationSetupEnvironment {
     var choices:()->[AssociationChoice]
-    var apply:([AssociationChoice]) async -> [String]
+    var apply:([AssociationChoice],AssociationApplySession) async -> AssociationApplyResult
     var canApply:Bool
     var complete:()->Void
-    static var live:Self {Self(choices:FileAssociations.choices,apply:FileAssociations.apply,canApply:FileAssociations.canApply,complete:{UserDefaults.standard.set(true,forKey:"fileSetupCompletedV6")})}
+    var requiresIndividualConsent=false
+    static var live:Self {Self(choices:FileAssociations.choices,apply:FileAssociations.apply,canApply:FileAssociations.canApply,complete:{UserDefaults.standard.set(true,forKey:"fileSetupCompletedV6")},requiresIndividualConsent:FileAssociations.requiresIndividualConsent)}
 }
 
 @MainActor
@@ -98,6 +99,7 @@ final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
     private var displayedGroups:[[AssociationChoice]]=[]
     private var groupKeys:[String]=[]
     private var busy=false
+    private var applySession:AssociationApplySession?
     private let environment:AssociationSetupEnvironment
     private let onFinish:()->Void
     init(parent:NSWindow,environment supplied:AssociationSetupEnvironment? = nil,onFinish:@escaping ()->Void) {
@@ -108,14 +110,14 @@ final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
         let content=NSView();panel.contentView=content
         let kicker=NSTextField(labelWithString:"FILE DEFAULTS");kicker.font = .systemFont(ofSize:10,weight:.semibold);kicker.textColor=NSColor(hex:0x529F94);kicker.frame=NSRect(x:30,y:612,width:500,height:16)
         let title=NSTextField(labelWithString:"Choose what opens in Orkhon");title.font = .systemFont(ofSize:25,weight:.semibold);title.frame=NSRect(x:28,y:573,width:688,height:34)
-        let detail=NSTextField(wrappingLabelWithString:"Grouped by the app that opens them now. Uncheck any formats you want to keep there. Your choices take effect only when you confirm.");detail.font = .systemFont(ofSize:13);detail.textColor = .secondaryLabelColor;detail.frame=NSRect(x:30,y:526,width:680,height:38)
+        let detail=NSTextField(wrappingLabelWithString:environment.requiresIndividualConsent ? "Uncheck formats to keep with their current app. This macOS version asks you to approve each changed file type separately. You can stop and finish later." : "Grouped by the app that opens them now. Uncheck any formats you want to keep there. Your choices take effect only when you confirm.");detail.font = .systemFont(ofSize:13);detail.textColor = .secondaryLabelColor;detail.frame=NSRect(x:30,y:526,width:680,height:38)
         let searchSurface=Surface(frame:NSRect(x:28,y:479,width:688,height:34));searchSurface.wantsLayer=true;searchSurface.layer?.cornerRadius=8;searchSurface.layer?.borderWidth=1;searchSurface.layer?.borderColor=NSColor.separatorColor.withAlphaComponent(0.6).cgColor;searchSurface.color(NSColor.labelColor.withAlphaComponent(0.035))
         let magnifier=NSImageView(frame:NSRect(x:12,y:9,width:16,height:16));magnifier.image=NSImage(systemSymbolName:"magnifyingglass",accessibilityDescription:nil);magnifier.contentTintColor = .secondaryLabelColor;searchSurface.addSubview(magnifier)
         search.frame=NSRect(x:37,y:1,width:638,height:32);search.placeholderString="Search extensions or apps";search.font = .systemFont(ofSize:13);search.isBordered=false;search.drawsBackground=false;search.focusRingType = .none;search.delegate=self;search.setAccessibilityLabel("Search file defaults");searchSurface.addSubview(search)
         scroll.frame=NSRect(x:24,y:112,width:696,height:355);scroll.hasVerticalScroller=true;scroll.autohidesScrollers=true;scroll.drawsBackground=false;scroll.documentView=rows
         statusLabel.frame=NSRect(x:30,y:82,width:680,height:18);statusLabel.font = .systemFont(ofSize:11);statusLabel.textColor = .secondaryLabelColor;statusLabel.lineBreakMode = .byTruncatingTail
         let separator=NSBox(frame:NSRect(x:28,y:68,width:688,height:1));separator.boxType = .separator
-        skipButton.frame=NSRect(x:22,y:22,width:205,height:34);skipButton.isBordered=false;skipButton.font = .systemFont(ofSize:12);skipButton.target=self;skipButton.action=#selector(skip)
+        skipButton.identifier=NSUserInterfaceItemIdentifier("stopFileDefaults");skipButton.frame=NSRect(x:22,y:22,width:205,height:34);skipButton.isBordered=false;skipButton.font = .systemFont(ofSize:12);skipButton.target=self;skipButton.action=#selector(skip)
         actionButton.frame=NSRect(x:436,y:20,width:280,height:36);actionButton.font = .systemFont(ofSize:12,weight:.semibold);actionButton.accent=NSColor(hex:0x529F94);actionButton.state = .on;actionButton.target=self;actionButton.action=#selector(applySelection)
         actionButton.identifier=NSUserInterfaceItemIdentifier("applyFileDefaults")
         for view in [kicker,title,detail,searchSurface,scroll,statusLabel,separator,skipButton,actionButton] {content.addSubview(view)}
@@ -217,29 +219,64 @@ final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
             statusLabel.stringValue="Preview build · These choices are read-only until Orkhon Code is installed."
             skipButton.title="Continue to editor";return
         }
+        let changes=selection.chosen.filter{$0.observed?.lowercased() != "app.orkhon.editor"}.count
         actionButton.isEnabled = !busy
-        actionButton.title=count==0 ? "Continue without changes":"Use Orkhon for \(count) extensions"
-        statusLabel.stringValue="\(count) selected · Only selected text formats will change. C++ includes .cp."
+        actionButton.title=changes==0 ? "Continue without changes":(environment.requiresIndividualConsent ? "Review \(changes) macOS \(changes==1 ? "confirmation":"confirmations")":"Use Orkhon for \(count) extensions")
+        statusLabel.stringValue=environment.requiresIndividualConsent
+            ? "\(count) extensions selected · Up to \(changes) system \(changes==1 ? "prompt":"prompts") · Shared extensions count once."
+            : "\(count) selected · Only selected text formats will change. C++ includes .cp."
     }
-    @objc private func skip() {guard !busy else{return};finish()}
+    @objc private func skip() {
+        if busy {
+            applySession?.stopRequested=true;skipButton.isEnabled=false
+            statusLabel.stringValue="Stopping · Answer the current macOS prompt to return here."
+        } else {finish()}
+    }
     @objc private func applySelection() {
-        guard !busy,environment.canApply else{return};let selected=selection.chosen
-        if selected.isEmpty {finish();return}
-        busy=true;search.isEnabled=false;actionButton.isEnabled=false;skipButton.isEnabled=false;formatButtons.forEach{$0.isEnabled=false};groupButtons.forEach{$0.isEnabled=false};statusLabel.stringValue="Applying your choices…"
+        guard !busy,environment.canApply,window?.attachedSheet == nil else{return}
+        let selected=selection.chosen
+        let count=selected.filter{$0.observed?.lowercased() != "app.orkhon.editor"}.count
+        if count==0 {finish();return}
+        if environment.requiresIndividualConsent,let window {
+            let alert=NSAlert();alert.messageText=count==1 ? "macOS will ask once":"macOS will ask up to \(count) times"
+            alert.informativeText="Each changed file type needs its own system approval. Shared extensions count as one type. Choosing Keep stops the remaining requests. You can also stop from this window after answering the current prompt, or review fewer formats first."
+            alert.addButton(withTitle:"Start confirmations");alert.addButton(withTitle:"Review selection")
+            alert.beginSheetModal(for:window) { [weak self] response in
+                if response == .alertFirstButtonReturn {self?.beginApplying(selected)}
+            }
+        } else {beginApplying(selected)}
+    }
+    private func beginApplying(_ selected:[AssociationChoice]) {
+        guard !busy else{return}
+        searchWork?.cancel()
+        busy=true;search.isEnabled=false;actionButton.isEnabled=false
+        skipButton.title="Stop after current request";skipButton.isEnabled=true
+        formatButtons.forEach{$0.isEnabled=false};groupButtons.forEach{$0.isEnabled=false}
+        let session=AssociationApplySession();applySession=session
+        session.progress={ [weak self] index,total,choice in
+            self?.statusLabel.stringValue="\(index) of \(total) · \(choice.label) · \(choice.currentName) → Orkhon Code"
+        }
+        statusLabel.stringValue="Preparing your reviewed choices…"
         Task { [weak self] in
             guard let self else{return}
-            let failures=await self.environment.apply(selected)
-            self.busy=false
-            if failures.isEmpty {self.finish()}
+            let result=await self.environment.apply(selected,session)
+            self.busy=false;self.applySession=nil
+            if result.failures.isEmpty && !result.stopped {self.finish()}
             else {
-                // A partial success changes observed defaults. Reload them before
-                // retrying, preserving opt-outs and re-evaluating eligibility.
                 self.selection.refresh(self.environment.choices())
+                if let kept=result.kept,let choice=self.selection.choices.first(where:{$0.type.identifier==kept}) {
+                    self.selection.set([choice],enabled:false)
+                }
                 self.search.isEnabled=true;self.skipButton.isEnabled=true;self.skipButton.title="Continue to editor"
                 self.rebuildGroups();self.updateSummary()
-                self.statusLabel.stringValue="Some choices were not changed. Adjust your selection or try again."
-                let alert=NSAlert();alert.messageText="macOS could not apply every choice";alert.informativeText=failures.joined(separator:"\n");alert.addButton(withTitle:"OK")
-                if let window=self.window {alert.beginSheetModal(for:window,completionHandler:nil)}
+                self.statusLabel.stringValue=result.failures.isEmpty
+                    ? "Stopped · Completed changes are saved. Remaining defaults were left as they are."
+                    : "Stopped at the first unchanged choice. Review it before continuing."
+                if !result.failures.isEmpty {
+                    let alert=NSAlert();alert.messageText="Some defaults were left unchanged"
+                    alert.informativeText=result.failures.joined(separator:"\n");alert.addButton(withTitle:"OK")
+                    if let window=self.window {alert.beginSheetModal(for:window,completionHandler:nil)}
+                }
             }
         }
     }
