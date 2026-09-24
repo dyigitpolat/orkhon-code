@@ -28,7 +28,7 @@ extension EditorWindowController {
                 observed[0]=choice(.plainText,["txt","text"],"app.orkhon.editor","Orkhon Code",previous:"com.apple.TextEdit")
                 // Another app changes TSV during the first attempt.
                 observed[2]=choice(.tabSeparatedText,["tsv"],"com.apple.Safari","Safari")
-                return AssociationApplyResult(failures:[".csv: simulated macOS failure"])
+                return AssociationApplyResult(failures:[".csv: simulated macOS failure"],kept:Set([json.type.identifier,xml.type.identifier]))
             }
             return AssociationApplyResult()
         },canApply:true,complete:{completed=true})
@@ -58,6 +58,7 @@ extension EditorWindowController {
         check("TextEdit choices re-enabled after failure",format(text.type)?.isEnabled==true)
         check("Numbers choices re-enabled after failure",format(csv.type)?.isEnabled==true)
         check("Console opt-out preserved after failure",format(log.type)?.isEnabled==true && format(log.type)?.state == .off)
+        check("Multiple Keep decisions remain deselected after a later failure",format(json.type)?.state == .off && format(xml.type)?.state == .off)
         check("search re-enabled after failure",descendants(content).compactMap{$0 as? NSTextField}.first{$0.accessibilityLabel()=="Search file defaults"}?.isEnabled==true)
         check("retry enabled after failure",applyButton()?.isEnabled==true)
         let numbersToggle=buttons().first{$0.accessibilityLabel()?.contains("Use Orkhon for Numbers formats:")==true}
@@ -72,6 +73,7 @@ extension EditorWindowController {
             let retried=attempts[1]
             check("retry uses refreshed defaults after partial success",retried.first{$0.type==text.type}?.observed=="app.orkhon.editor")
             check("retry preserves opt-outs",!retried.contains{$0.type==log.type})
+            check("retry does not re-request declined types",!retried.contains{$0.type==json.type || $0.type==xml.type})
             check("retry uses new current app without locking the format",retried.first{$0.type==tsv.type}?.observed=="com.apple.Safari")
             check("retry still excludes HTML",!retried.contains{$0.type==html.type})
             check("retry includes failed eligible formats",retried.contains{$0.type==csv.type})
@@ -105,7 +107,15 @@ extension EditorWindowController {
         },request:{type in
             requests.append(type.identifier)
             check("backup precedes every request",backups>0)
-            if mode=="keep" {return NSError(domain:NSCocoaErrorDomain,code:NSUserCancelledError)}
+            if mode=="keep" || (["mixed-keep","keep-then-stop","keep-then-fail"].contains(mode) && requests.count==1) {
+                if mode=="keep-then-stop" {session.stopRequested=true}
+                return NSError(domain:NSCocoaErrorDomain,code:NSUserCancelledError)
+            }
+            if mode=="mixed-keep" && requests.count==75 {return NSError(domain:NSOSStatusErrorDomain,code:-128)}
+            if mode=="mixed-keep" && requests.count==150 {
+                return NSError(domain:NSCocoaErrorDomain,code:NSFileWriteUnknownError,userInfo:[NSUnderlyingErrorKey:NSError(domain:NSOSStatusErrorDomain,code:-128)])
+            }
+            if mode=="keep-then-fail" {return NSError(domain:NSOSStatusErrorDomain,code:-50)}
             if mode=="failure" {return NSError(domain:NSOSStatusErrorDomain,code:-50)}
             defaults[type.identifier]=target
             if mode=="cancel" {session.stopRequested=true}
@@ -121,7 +131,19 @@ extension EditorWindowController {
         check("baseline saved once for the batch",backups==1)
         reset("keep")
         let kept=await AssociationApplier.run(choices,target:target,session:session,environment:environment)
-        check("Keep stops after one system request",kept.stopped && kept.kept==choices[0].type.identifier && requests.count==1)
+        check("Keep continues through all 150 requests",!kept.stopped && kept.failures.isEmpty && kept.kept.count==150 && requests.count==150)
+        check("Keep leaves every declined app unchanged",choices.allSatisfy{defaults[$0.type.identifier]==$0.observed})
+        reset("mixed-keep")
+        let mixed=await AssociationApplier.run(choices,target:target,session:session,environment:environment)
+        let declined=Set([choices[0],choices[74],choices[149]].map{$0.type.identifier})
+        check("Mixed Keep and Use decisions reach the last type",!mixed.stopped && mixed.failures.isEmpty && mixed.kept==declined && requests.count==150)
+        check("Only approved types change their defaults",choices.allSatisfy{defaults[$0.type.identifier] == (declined.contains($0.type.identifier) ? $0.observed:target)})
+        reset("keep-then-stop")
+        let keepThenStop=await AssociationApplier.run(choices,target:target,session:session,environment:environment)
+        check("Explicit Stop still works after Keep",keepThenStop.stopped && keepThenStop.kept==Set([choices[0].type.identifier]) && requests.count==1)
+        reset("keep-then-fail")
+        let keepThenFail=await AssociationApplier.run(choices,target:target,session:session,environment:environment)
+        check("A later failure retains previous Keep decisions",keepThenFail.failures.count==1 && keepThenFail.kept==Set([choices[0].type.identifier]) && requests.count==2)
         reset("cancel")
         let stopped=await AssociationApplier.run(choices,target:target,session:session,environment:environment)
         check("Stop finishes current request without issuing next",stopped.stopped && requests.count==1 && defaults[choices[0].type.identifier]==target)

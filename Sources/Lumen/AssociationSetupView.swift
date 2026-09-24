@@ -239,7 +239,7 @@ final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
         if count==0 {finish();return}
         if environment.requiresIndividualConsent,let window {
             let alert=NSAlert();alert.messageText=count==1 ? "macOS will ask once":"macOS will ask up to \(count) times"
-            alert.informativeText="Each changed file type needs its own system approval. Shared extensions count as one type. Choosing Keep stops the remaining requests. You can also stop from this window after answering the current prompt, or review fewer formats first."
+            alert.informativeText="Each changed file type needs its own system approval. Shared extensions count as one type. Choosing Keep preserves that file type’s current app and continues to the next type. You can also stop from this window after answering the current prompt, or review fewer formats first."
             alert.addButton(withTitle:"Start confirmations");alert.addButton(withTitle:"Review selection")
             alert.beginSheetModal(for:window) { [weak self] response in
                 if response == .alertFirstButtonReturn {self?.beginApplying(selected)}
@@ -264,9 +264,7 @@ final class FirstLaunchSetup:NSWindowController,NSTextFieldDelegate {
             if result.failures.isEmpty && !result.stopped {self.finish()}
             else {
                 self.selection.refresh(self.environment.choices())
-                if let kept=result.kept,let choice=self.selection.choices.first(where:{$0.type.identifier==kept}) {
-                    self.selection.set([choice],enabled:false)
-                }
+                self.selection.set(self.selection.choices.filter{result.kept.contains($0.type.identifier)},enabled:false)
                 self.search.isEnabled=true;self.skipButton.isEnabled=true;self.skipButton.title="Continue to editor"
                 self.rebuildGroups();self.updateSummary()
                 self.statusLabel.stringValue=result.failures.isEmpty

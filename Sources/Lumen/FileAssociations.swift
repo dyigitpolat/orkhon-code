@@ -27,7 +27,7 @@ final class AssociationApplySession {
 struct AssociationApplyResult {
     var failures:[String]=[]
     var stopped=false
-    var kept:String?
+    var kept=Set<String>()
 }
 
 @MainActor
@@ -47,18 +47,19 @@ enum AssociationApplier {
         // Save the whole reviewed baseline atomically before the first mutation.
         do {try environment.backup(pending)}
         catch {return AssociationApplyResult(failures:["Could not save the previous apps. No defaults were changed."])}
+        var result=AssociationApplyResult()
         for (index,choice) in pending.enumerated() {
-            if session.stopRequested {return AssociationApplyResult(stopped:true)}
+            if session.stopRequested {result.stopped=true;return result}
             let current=environment.current(choice.type)
             // Another app may have changed the default while an earlier prompt
             // was open. Never replace an app the user has not reviewed.
             guard current?.lowercased() == choice.observed?.lowercased(),
                   AssociationPolicy.eligible(extensions:(choice.type.tags[.filenameExtension] ?? [])+choice.extensions,isSource:choice.type.isDynamic || choice.type.conforms(to:.text)) else {
-                return AssociationApplyResult(failures:["\(choice.label): its current app or supported extensions changed. Review it again."])
+                result.failures=["\(choice.label): its current app or supported extensions changed. Review it again."];return result
             }
             session.progress(index+1,pending.count,choice)
             await Task.yield()
-            if session.stopRequested {return AssociationApplyResult(stopped:true)}
+            if session.stopRequested {result.stopped=true;return result}
             let error=await environment.request(choice.type)
             var now=environment.current(choice.type)
             if error == nil {
@@ -68,16 +69,29 @@ enum AssociationApplier {
                 }
             }
             if now?.lowercased() != target.lowercased() {
-                if let native=error as NSError?,
-                   (native.domain == NSCocoaErrorDomain && native.code == NSUserCancelledError || native.domain == NSOSStatusErrorDomain && native.code == -128) {
-                    return AssociationApplyResult(stopped:true,kept:choice.type.identifier)
+                if isDeclined(error) {
+                    // Keep is a decision about this shared file type only.
+                    // Record the opt-out for retries, then ask about the next type.
+                    result.kept.insert(choice.type.identifier)
+                    continue
                 }
                 let message=error?.localizedDescription ?? "macOS kept the current default"
-                // A rejection or failure stops the queue; no hundred-dialog tail.
-                return AssociationApplyResult(failures:["\(choice.label): \(message). Current app: \(now ?? "none")."],stopped:true)
+                result.failures=["\(choice.label): \(message). Current app: \(now ?? "none")."]
+                result.stopped=true;return result
             }
         }
-        return AssociationApplyResult()
+        return result
+    }
+    private static func isDeclined(_ error:Error?)->Bool {
+        // NSWorkspace may wrap the Launch Services cancellation in an NSError.
+        var native=error as NSError?
+        for _ in 0..<8 {
+            guard let current=native else{return false}
+            if current.domain == NSCocoaErrorDomain && current.code == NSUserCancelledError ||
+               current.domain == NSOSStatusErrorDomain && current.code == -128 {return true}
+            native=current.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
     }
 }
 
